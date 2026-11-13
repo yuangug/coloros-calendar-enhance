@@ -2,6 +2,15 @@ plugins {
     id("com.android.application")
 }
 
+// 发布用签名：keystore.properties + keystore/ 只在发布者本机存在，不入库。
+// 没有它们的机器照样能构建（release 自动退回 debug 签名）。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def hasReleaseKey = keystorePropsFile.exists()
+def keystoreProps = new Properties()
+if (hasReleaseKey) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace "com.lcodexs.coursealarm"
     compileSdk 36
@@ -10,8 +19,19 @@ android {
         applicationId "com.lcodexs.coursealarm"
         minSdk 26
         targetSdk 34
-        versionCode 18
-        versionName "0.3.3"
+        versionCode 19
+        versionName "0.4.0"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
     }
 
     buildTypes {
@@ -21,6 +41,7 @@ android {
         release {
             minifyEnabled false
             // 开 R8 时入口类会被裁掉，必须保留（见 proguard-rules.pro）
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
 

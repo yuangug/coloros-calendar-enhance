@@ -1,6 +1,6 @@
-# 课程早晨闹钟 · CourseAlarm
+# ColorOS 日历增强 · CourseAlarm
 
-> 给 ColorOS 日历装上真正的「课表」：Excel / ICS / 教务系统一键导入，也能导出成表格或日历；
+> 让 ColorOS 日历真正能上课表：Excel / ICS / 教务系统一键导入，也能导出成表格或日历；
 > 第二天有早八，晚上自动帮你在时钟里设好闹钟。
 
 一个 LSPosed 模块（modern libxposed API 102），注入 ColorOS 日历的课表页，不替换原 App、不改桌面图标，
@@ -93,7 +93,7 @@
 其它系统只要课表页是「星期 × 节次」的表格就能解析；完全解析不出来时会给出诊断（表格数、kbcontent 数、星期表头数、iframe 数）告诉你卡在哪。
 
 **宿主**：ColorOS 日历 `com.coloros.calendar`（课表页 / 课程提醒页）、ColorOS 时钟 `com.coloros.alarmclock`（建闹钟）。
-实测环境：ColorOS 16 / Android 16（SDK 36），模块 v0.3.3。
+实测环境：ColorOS 16 / Android 16（SDK 36），模块 v0.4.0。
 
 ---
 

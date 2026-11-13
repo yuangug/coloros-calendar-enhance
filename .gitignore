@@ -8,6 +8,12 @@ app/build/
 # 机器相关（各人自己的 SDK 路径）
 local.properties
 
+# 签名密钥绝不入库：没有它时 release 自动退回 debug 签名，仍可构建
+keystore/
+keystore.properties
+*.jks
+*.keystore
+
 # 产物与日志
 *.apk
 *.log
