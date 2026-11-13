@@ -1,0 +1,94 @@
+package com.lcodexs.coursealarm;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+/** 模块自己的设置（写在宿主 calendar 进程的私有 prefs 里，跨进程单份）。 */
+final class Prefs {
+    static final String FILE = "lspx_course_alarm";
+
+    static final String KEY_ENABLED = "enabled";
+    static final String KEY_OFFSET = "offset_min";
+    static final String KEY_SILENT = "ring_silent";
+    static final String KEY_VIBRATE = "vibrate";
+
+    static final int DEFAULT_OFFSET = 15;
+
+    private static volatile SharedPreferences sp;
+
+    private Prefs() {
+    }
+
+    static synchronized void init(Context ctx) {
+        if (sp == null && ctx != null) {
+            sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        }
+    }
+
+    private static SharedPreferences p() {
+        return sp;
+    }
+
+    static boolean enabled() {
+        SharedPreferences s = p();
+        return s != null && s.getBoolean(KEY_ENABLED, false);
+    }
+
+    static int offset() {
+        SharedPreferences s = p();
+        int v = s == null ? DEFAULT_OFFSET : s.getInt(KEY_OFFSET, DEFAULT_OFFSET);
+        return Math.max(0, Math.min(120, v));
+    }
+
+    static boolean silent() {
+        SharedPreferences s = p();
+        return s != null && s.getBoolean(KEY_SILENT, false);
+    }
+
+    static boolean vibrate() {
+        SharedPreferences s = p();
+        return s == null || s.getBoolean(KEY_VIBRATE, true);
+    }
+
+    static void setEnabled(boolean v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putBoolean(KEY_ENABLED, v).apply();
+    }
+
+    static void setOffset(int v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putInt(KEY_OFFSET, Math.max(0, Math.min(120, v))).apply();
+    }
+
+    static void setSilent(boolean v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putBoolean(KEY_SILENT, v).apply();
+    }
+
+    static void setVibrate(boolean v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putBoolean(KEY_VIBRATE, v).apply();
+    }
+
+    /** 教务系统上次打开的地址（网页登录版用） */
+    static String jwLastUrl() {
+        SharedPreferences s = p();
+        return s == null ? "" : s.getString("jw_last_url", "");
+    }
+
+    static void setJwLastUrl(String url) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putString("jw_last_url", url == null ? "" : url).apply();
+    }
+
+    /** 记录上一次成功结果，用于设置页摘要与排错 */
+    static void setLastResult(String text) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putString("last_result", text).apply();
+    }
+
+    static String lastResult() {
+        SharedPreferences s = p();
+        return s == null ? "" : s.getString("last_result", "");
+    }
+}

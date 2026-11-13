@@ -1,0 +1,31 @@
+<table id="timetable" border="1">
+  <tr>
+    <th></th>
+    <th>星期一</th><th>星期二</th><th>星期三</th><th>星期四</th><th>星期五</th>
+  </tr>
+  <!-- 行头用 rowspan 合并：第 1-2 节跨两行 -->
+  <tr>
+    <td rowspan="2">1-2</td>
+    <td><div class='kbcontent'>高等数学A<br/><font title="教师">张三</font><br/><font title="周次(节次)">1-16(周)[01-02节]</font><br/><font title="教室">厚德101</font></div></td>
+    <td></td>
+    <td><div class='kbcontent'>大学物理<br/><font title="教师">李四</font><br/><font title="周次(节次)">3-15(周)[01-02节]</font><br/><font title="教室">厚德202</font></div></td>
+    <td></td>
+    <td></td>
+  </tr>
+  <!-- 行头被上一行的 rowspan 占住：这一行只有 5 个 td（周一…周五） -->
+  <tr>
+    <td></td>
+    <td><div class='kbcontent'>线性代数<br/><font title="教师">王五</font><br/><font title="周次(节次)">1-16(周)[01-02节]</font><br/><font title="教室">正心305</font></div></td>
+    <td></td>
+    <td></td>
+    <td></td>
+  </tr>
+  <!-- 行头写成阿拉伯数字；一门课 colspan=2 同时占周一、周二 -->
+  <tr>
+    <td>3</td>
+    <td colspan="2"><div class='kbcontent'>体育<br/><font title="教师">孙七</font><br/><font title="周次(节次)">1-16(周)[03节]</font><br/><font title="教室">体育馆</font></div></td>
+    <td></td>
+    <td></td>
+    <td><div class='kbcontent'>形势与政策<br/><font title="教师">周八</font><br/><font title="周次(节次)">9-12(周)[03节]</font><br/><font title="教室">正心501</font></div></td>
+  </tr>
+</table>

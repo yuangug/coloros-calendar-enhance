@@ -1,0 +1,13 @@
+# 构建产物
+build/
+app/build/
+.gradle/
+*.iml
+.idea/
+
+# 机器相关（各人自己的 SDK 路径）
+local.properties
+
+# 产物与日志
+*.apk
+*.log

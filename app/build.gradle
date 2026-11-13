@@ -1,0 +1,42 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace "com.lcodexs.coursealarm"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.lcodexs.coursealarm"
+        minSdk 26
+        targetSdk 34
+        versionCode 18
+        versionName "0.3.3"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            // 开 R8 时入口类会被裁掉，必须保留（见 proguard-rules.pro）
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+
+    packaging {
+        resources {
+            excludes += ["/META-INF/{AL2.0,LGPL2.1}"]
+        }
+    }
+}
+
+dependencies {
+    // 只参与编译：框架在运行时提供 io.github.libxposed.*，打进 APK 会类冲突
+    compileOnly("io.github.libxposed:api:102.0.0")
+}

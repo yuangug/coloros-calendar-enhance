@@ -1,0 +1,4 @@
+// 根构建文件：AGP 9.x 需要 JDK 21
+plugins {
+    id("com.android.application") version "9.2.1" apply false
+}
