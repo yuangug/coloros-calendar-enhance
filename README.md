@@ -1,69 +1,118 @@
-# 课程早晨闹钟（CourseAlarm）
+# 课程早晨闹钟 · CourseAlarm
 
-modern libxposed **API 102** 模块 · 注入目标：ColorOS 日历 `com.coloros.calendar`（+ 时钟 `com.coloros.alarmclock` 兜底）· logcat tag `COURSEALARM`
+> 给 ColorOS 日历装上真正的「课表」：Excel / ICS / 教务系统一键导入，也能导出成表格或日历；
+> 第二天有早八，晚上自动帮你在时钟里设好闹钟。
 
-在 ColorOS 日历的课表页注入「导入课表 / 导出课表」，并把「次日第一节课」变成时钟 App 里的**一次性闹钟**。
+一个 LSPosed 模块（modern libxposed API 102），注入 ColorOS 日历的课表页，不替换原 App、不改桌面图标，
+装完照常用日历，只是「更多」菜单里多了两项：**导入课表**、**导出课表**。
+
+---
 
 ## 功能
 
-| 能力 | 说明 |
+### 一、导入课表（四种来源，任选）
+
+| 方式 | 说明 |
 |---|---|
-| 导入课表 | Excel(.xlsx) / ICS(.ics) / 教务系统课表页(HTML 或 jwglxt 的 `kbList` JSON) / 「下载」目录直选；**格式按文件内容判定**，不看扩展名 |
-| 教务解析 | 正方 jsxsd（`kbcontent` + `font title`）、强智/URP 表格、正方新版 JSON；同格多课（`------` 分隔）、rowspan/colspan、数字节次行头、单双周都能拆 |
-| 写入 | 替换 / 追加 / **新建一张课表后导入**（走宿主 `CreateCourseTableViewModel.saveCoursesAndTable`，失败退宿主建表页，绝不静默写回旧表） |
-| 导出 | `.xlsx`（教务系统同版式，双 sheet：课表网格 + 课程明细）、`.ics`（带 `X-LSPX-WEEKS/NODES/DAY/COLOR` 可无损回灌） |
-| 闹钟 | 每晚 21:00 依据次日课程在时钟 App 建一次性闹钟（`AiSupportContentProvider.addAlarm`），幂等清理只删自己设的 |
+| **从教务系统导入（网页登录）** | 模块里内嵌浏览器，你自己输网址、自己登录、点到「学期理论课表」，点确定即可解析。账号密码不落盘，不走第三方服务器 |
+| **从文件导入** | 系统文件选择器，选 `.xlsx` 或 `.ics` |
+| **从「下载」目录直接选** | 不依赖系统文件选择器（部分 ROM 的 Picker 只列媒体库，看不到刚下载的文件），模块自己列 `.xlsx / .ics` |
+| **粘贴课表 HTML / 表单直连** | 高级用法：把课表页源码或正方新版接口的 `kbList` JSON 直接贴进来 |
 
-## 构建
+导入前会先预览「导入 N 门课 · 来源」，并列出前三门课的名字 / 星期 / 节次 / 周次 / 地点 / 教师，确认无误再写入。
 
-需要 **JDK 21** + **Android SDK 36**（`build-tools 36.x`）。在仓库根建 `local.properties`：
+### 二、自动解析，不用手工整理
 
-```properties
-sdk.dir=C\:\\path\\to\\Android\\Sdk
-```
+- **格式按内容判定**：丢进来的是 xlsx、ics，还是课表 HTML / JSON，由文件内容决定，改错扩展名也认得
+- **兼容常见教务系统**：正方 jsxsd（`kbcontent` 那套）、强智 qzdatasoft、URP 金智、正方新版 jwglxt（`kbList` JSON）
+- **同一格多门课**：教务系统常把多门课塞进一个格子（用 `------` 分隔线），能拆成多门
+- **跨行跨列**：`rowspan` / `colspan` 展开；节次行头写「第一二节」「1-2节」或纯数字都认
+- **周次写法**：`1-16周`、`1-16(周)`、`1~16`、`1-16周(单)`、`单周`/`双周`、`3,5,7周`、`1-10,12,14,16`
+- **同名课多段排课**：一门课前八周、后八周各排一次，会并成一门课的两个周次段
+- **没有节次的课**：页面备注里的「劳动教育 1-20周」这类没写时间的，会明确提示「未导入」，不会静默消失
 
-```bash
-./gradlew :app:assembleDebug
-```
+### 三、写入方式三选一
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`
+| 方式 | 效果 |
+|---|---|
+| **替换现有课表** | 清空当前课表再写入（最常用） |
+| **追加到现有课表** | 保留已有课程，新课程叠加 |
+| **新建一张课表后导入** | 走宿主自己的建表 API，新建的表在「课表管理」里可见、可切换；失败时打开宿主的建表页并预置课程，**绝不静默写进旧表** |
 
-装机前确认元数据齐全（缺一个框架就不加载）：
+### 四、导出课表
 
-```bash
-unzip -l app/build/outputs/apk/debug/app-debug.apk | grep META-INF/xposed
-#   META-INF/xposed/module.prop        (minApiVersion / targetApiVersion = 102)
-#   META-INF/xposed/java_init.list     (com.lcodexs.coursealarm.CourseAlarmEntry)
-#   assets/xposed_init                 (同一个入口类)
-# 且不应出现 io/github/libxposed/*   （compileOnly，打进包会类冲突）
-```
+| 格式 | 内容 |
+|---|---|
+| **Excel（.xlsx）** | 教务系统同版式：Sheet1 是「星期 × 节次」的课表网格（每格课程名 / 教师 / 周次节次 / 教室），Sheet2 是纯表格的课程明细；Excel / WPS / 手机阅读器都能直接打开 |
+| **ICS（.ics）** | 标准日历，可导入系统日历、Google Calendar、WakeUp 等；额外带 `X-LSPX-WEEKS/NODES/DAY/COLOR` 字段，本模块再导入时能无损还原 |
+
+导出落到系统「下载」目录，同名文件自动覆盖，不会产生 `课程表(1).xlsx` 这种副本。
+
+### 五、课程提醒页：早晨闹钟开关
+
+课表页的「课程提醒」里会多出一张卡片，可调：
+
+- 开关（是否启用早晨提醒）
+- 提前量（默认 15 分钟，可调 0–120）
+- 静音 / 振动
+
+### 六、自动叫醒（核心）
+
+每晚 **21:00** 模块会看第二天第一节课，并在**时钟 App 里建一个一次性闹钟**：
+
+- 响铃时间 = 上课时间 − 提前量
+- 标签形如「课程闹钟 08:10 · 高等数学」，响过一次自动删除，不会天天响
+- 只在**有早课的那天**建；第二天没课就不设
+- 清理时只删自己设的（`message LIKE '课程闹钟%'`），你自己的闹钟一个不动
+- 日历进程被杀了也能响（借宿主 `AlertReceiver` 冷启动），打开 App 时会自动补排
+
+---
+
+## 怎么用
+
+1. 打开日历 → 进入「课表」页
+2. 右上角 **⋮ → 导入课表** → 选来源 → 确认预览 → 选替换 / 追加 / 新建
+3. 想备份或换机：**⋮ → 导出课表** → 选 Excel 或 ICS
+4. 想被叫醒：课表页 → 课程提醒 → 打开「早晨闹钟」
+
+---
+
+## 支持范围
+
+**文件格式**
+
+| 格式 | 导入 | 导出 |
+|---|---|---|
+| `.xlsx`（Excel 2007+） | ✅ | ✅ |
+| `.ics`（iCalendar） | ✅ | ✅ |
+| 课表 HTML（教务系统页面源码） | ✅ | — |
+| `kbList` JSON（正方新版接口） | ✅ | — |
+| `.xls`（Excel 97 老格式） | ❌ 会提示另存为 `.xlsx` | — |
+
+**教务系统**：正方 jsxsd、强智 qzdatasoft、URP 金智、正方新版 jwglxt（JSON）。
+其它系统只要课表页是「星期 × 节次」的表格就能解析；完全解析不出来时会给出诊断（表格数、kbcontent 数、星期表头数、iframe 数）告诉你卡在哪。
+
+**宿主**：ColorOS 日历 `com.coloros.calendar`（课表页 / 课程提醒页）、ColorOS 时钟 `com.coloros.alarmclock`（建闹钟）。
+实测环境：ColorOS 16 / Android 16（SDK 36），模块 v0.3.3。
+
+---
 
 ## 安装
 
+1. 手机已 root + 装好 LSPosed / Vector / LSPatch
+2. 安装 APK，在框架管理器里启用本模块，作用域勾上 **日历**（时钟可选，用于兜底）
+3. **强制停止日历**（`am force-stop com.coloros.calendar`）后重新打开；看到「课程早晨闹钟 注入成功」的 toast 即生效
+
+自己构建（需要 JDK 21 + Android SDK 36，仓库根放 `local.properties` 指定 `sdk.dir`）：
+
 ```bash
+./gradlew :app:assembleDebug
 adb install -r -t app/build/outputs/apk/debug/app-debug.apk
 ```
 
-在 LSPosed / Vector 管理器里：
+---
 
-1. 启用模块（`scope.list` 已声明 `com.coloros.calendar`、`com.coloros.alarmclock`）
-2. 目标 App **强制停止**后重开（旧 dex 还在跑的话 hook 不会生效）
-
-## 使用
-
-课表页右上角「⋮ → 导入课表」：
-
-```
-导入课表
-├─ 从教务系统导入（网页登录）  内嵌 WebView 自己登录，点到「学期理论课表」→ 确定
-├─ 从文件导入（.ics / .xlsx）  系统文件选择器
-├─ 从「下载」目录直接选        不依赖系统 Picker（推荐）
-└─ 粘贴课表 HTML / 表单直连    高级：直接贴 HTML 或 kbList JSON
-```
-
-导出：`⋮ → 导出课表`，落到系统「下载」目录（同名覆盖，不再产生 `(1)(2)` 副本）。
-
-## 排错判据
+## 排错
 
 ```bash
 adb logcat -s COURSEALARM
@@ -71,69 +120,26 @@ adb logcat -s COURSEALARM
 
 | 日志 | 含义 |
 |---|---|
-| `injection ready pkg=com.coloros.calendar` | 模块进宿主了（没有就是作用域 / 重启问题） |
-| `import format=Excel(.xlsx) (2)` / `ICS 日历 (1)` / `HTML 课表页 (3)` / `教务 JSON 课表` | 格式判定结果 |
-| `xlsx parsed courses=N` / `jw parseHtml zf=… gen=… final=… perDay=[…]` | 解析结果（`perDay` 是周一到周日门数） |
-| `host saveCoursesAndTable ok: name=… courses=N` | 新建课表成功 |
+| `injection ready pkg=com.coloros.calendar` | 模块已进宿主（没有就是作用域没勾 / 没重启宿主） |
+| `import format=Excel(.xlsx) (2)` | 格式判定结果 |
+| `xlsx parsed courses=N` / `jw parseHtml zf=… final=… perDay=[…]` | 解析出了几门（`perDay` 是周一到周日门数） |
+| `host saveCoursesAndTable ok: courses=N` | 新建课表成功 |
 | `insert done: N/M` | 真正写进数据库的门数 |
 
-`unscheduled=[…]` 表示页面备注行里「没有节次」的课（例如「劳动教育 1-20周」）——这类课在网格里没有位置，排不进课表，只做提示。
-
-## 解析器回归（不需要手机）
-
-`tools/parsecheck` 把解析从 Android 里剥出来，JDK 直接跑：
-
-```bash
-J=/path/to/jdk21/bin
-S=app/src/main/java/com/lcodexs/coursealarm
-"$J/javac" -encoding UTF-8 -d out "$S/JwParser.java" "$S/Course.java" "$S/ImportFormat.java" \
-  tools/parsecheck/ParseCheck.java
-"$J/java" -cp out com.lcodexs.coursealarm.ParseCheck tools/parsecheck/fixtures
-# 期望 ALL PASS
-```
-
-`fixtures/` 覆盖 5 类页面：正方 jsxsd、同格多课、强智/URP 表格、正方新版 JSON、以及数字行头 / 单引号 class / rowspan / colspan / 裸文本课名这类变体。
-
-单个页面诊断（列出「页面里应有」vs「实际解析出」）：
-
-```bash
-"$J/java" -cp out com.lcodexs.coursealarm.Diag /path/to/timetable.html
-```
-
-## 工程结构
-
-```
-app/src/main/java/com/lcodexs/coursealarm/
-├── CourseAlarmEntry.java   API 102 入口（onModuleLoaded / onPackageLoaded / Application.attach）
-├── Hooks.java              所有 hook 点（反射取 Method，不 import 宿主类）
-├── CurriculumIo.java       导入/导出流程、格式判定入口、新建课表三条路径
-├── ImportFormat.java       内容 magic → 扩展名 → MIME（纯 java，可桌面测）
-├── JwParser.java           教务课表 HTML/JSON → Course（纯 java，可桌面测）
-├── JwClient.java           教务系统取页面（登录 POST → GET 课表页）
-├── JwWebView.java          内嵌 WebView 登录 + 抓 DOM（含同源 iframe）
-├── XlsxCodec.java / TemplateXlsx.java   xlsx 读（sharedStrings）/ 写（照抄模板包）
-├── IcsCodec.java           ICS 读写
-├── HostTableCreator.java   用宿主建表 API 新建课表（含 courseTableTime 补齐）
-├── TableCtx.java           从宿主库反推节次时间 / 开学日 / 周数 / 当前课表
-├── CourseWriter.java       写 content://com.android.calendar/events
-├── Scheduler.java / NightJob.java / AlarmBridge.java / Notifier.java   21:00 定时与闹钟
-└── ReminderUiInjector.java 课程提醒页注入卡片
-
-tools/parsecheck/   解析器桌面回归（ParseCheck / Diag + fixtures）
-```
+---
 
 ## 已知限制
 
-- 只覆盖 HTML 表格 / JSON 两类课表；图片、PDF、纯 JS 动态渲染（DOM 里没有数据）不解析
-- 备注行里无节次的课不生成课程条目（只提示）
-- 新建课表后宿主不会自动把「当前表」切过去，需在「课表管理」里手动切换
-- 宿主被 R8 改名时，`CreateCourseTableViewModel` 的反射路径会退到「打开宿主建表页预置课程」
-- 时钟侧兜底依赖 `com.oplus.alarmclock.ai` Provider 存在（ColorOS 特有）
+- 图片课表、PDF 课表、纯 JS 动态拉数据（抓到的 DOM 里没有表格）不解析
+- 页面备注里「没有节次」的课不生成条目（只提示）
+- 新建课表后宿主不会自动切到新表，需要到「课表管理」里点一下
+- 早晨闹钟依赖宿主 `AlertReceiver` 存在，宿主大版本改动可能失效（届时打开 App 仍会补排）
+- 只适配 ColorOS 系日历的课表实现，其它 ROM 的日历不适用
 
-## 卸载 / 回滚
+## 卸载
 
 ```bash
 adb uninstall com.lcodexs.coursealarm
 ```
 
-或在 LSPosed 管理器取消勾选。已写入的课表数据在宿主里，用「课表管理」删表即可（模块不额外存数据）。
+或在框架管理器里取消勾选。已写入的课表数据在宿主里，用「课表管理」删表即可（模块本身不存数据）。
