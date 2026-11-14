@@ -91,4 +91,29 @@ final class Prefs {
         SharedPreferences s = p();
         return s == null ? "" : s.getString("last_result", "");
     }
+
+    // ── 课表主题 ────────────────────────────────────────────────────────────
+
+    /** 背景图绝对路径；空串表示没有背景 */
+    static String themeBg() {
+        SharedPreferences s = p();
+        return s == null ? "" : s.getString("theme_bg", "");
+    }
+
+    static void setThemeBg(String path) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putString("theme_bg", path == null ? "" : path).apply();
+    }
+
+    /** 遮罩浓度 0~230（越大背景越淡、文字越清楚） */
+    static int themeScrim() {
+        SharedPreferences s = p();
+        int v = s == null ? 120 : s.getInt("theme_scrim", 120);
+        return Math.max(0, Math.min(230, v));
+    }
+
+    static void setThemeScrim(int v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putInt("theme_scrim", Math.max(0, Math.min(230, v))).apply();
+    }
 }
