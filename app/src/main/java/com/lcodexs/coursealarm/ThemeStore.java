@@ -102,6 +102,17 @@ final class ThemeStore {
         if (s != null) s.edit().putInt("image_alpha", Math.max(0, Math.min(100, pct))).apply();
     }
 
+    /** 背景图上的遮罩浓度 0..230（越大背景越淡、课程文字越清楚） */
+    static int scrim(Context c) {
+        SharedPreferences s = p(c);
+        return s == null ? 120 : s.getInt("scrim", 120);
+    }
+
+    static void setScrim(Context c, int v) {
+        SharedPreferences s = p(c);
+        if (s != null) s.edit().putInt("scrim", Math.max(0, Math.min(230, v))).apply();
+    }
+
     /**
      * 把用户选的图片复制进 filesDir，返回是否成功。
      * 每次都写同一个名字（theme_bg），顺手删掉上一种扩展名的旧文件。

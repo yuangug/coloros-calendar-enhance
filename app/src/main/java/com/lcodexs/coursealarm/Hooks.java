@@ -33,8 +33,9 @@ final class Hooks {
         hookNightTick(module, host, app);
         hookCourseTableMenu(module, host);
         hookActivityResult(module, host);
-        hookTableTheme(module, host);
-        hookTableCanvas(module, host);
+        hookTableTokens(module, host);
+        hookBlockLegacyTablePage(module, host);
+        hookManageActivity(module, host);
         MainTabHook.install(module, host);
 
         // 让「每晚 21:00」这个定时器始终存在（App 每次起进程都补一次，幂等）
@@ -124,7 +125,7 @@ final class Hooks {
                 "课表主题");
         theme.setOnMenuItemClickListener(item -> {
             Logx.i(T, "menu click 课表主题");
-            ThemeBg.showThemeMenu(act);
+            ThemeSheet.show(act);
             return true;
         });
         Logx.i(T, "menu items injected (import/export/theme), size=" + menu.size());
@@ -187,75 +188,142 @@ final class Hooks {
         if (hooked == 0) Logx.w(T, "onActivityResult not found on " + cls + " hierarchy");
     }
 
-    /** 课表页主题：每次进入/回到页面把背景图铺上（幂等） */
-    private static void hookTableTheme(XposedModule module, ClassLoader host) {
-        final String cls = "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity";
-        Class<?> c = resolve(host, cls);
-        if (c == null) return;
-        int hooks = 0;
-        for (Method cand : c.getDeclaredMethods()) {
-            String nm = cand.getName();
-            boolean isCreate = nm.equals("onCreate") && cand.getParameterCount() == 1;
-            boolean isResume = nm.equals("onResume") && cand.getParameterCount() == 0;
-            if (!isCreate && !isResume) continue;
-            cand.setAccessible(true);
-            module.hook(cand)
-                    .setId("theme_" + nm)
+    /**
+     * 课表色板会被宿主重刷：TableView 构造时调 TimeTableDimensionRes#loadRes(context)，
+     * 把 TOP_TITLE_BG（顶栏白底）/文字色重新写成默认值 —— 我们不 hook 它的话，
+     * 每滑一页白条就回来一次（实测）。
+     * 这里在 loadRes 之后把主题色板再盖一遍（见 ThemeBg#applyTokens）。
+     */
+    private static void hookTableTokens(XposedModule module, ClassLoader host) {
+        try {
+            Class<?> dim = resolve(host,
+                    "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes");
+            if (dim == null) return;
+            Method m = null;
+            for (Method cand : dim.getDeclaredMethods()) {
+                if (cand.getName().equals("loadRes") && cand.getParameterCount() == 1
+                        && cand.getParameterTypes()[0] == Context.class) {
+                    m = cand;
+                    break;
+                }
+            }
+            if (m == null) {
+                Logx.w(T, "TimeTableDimensionRes#loadRes not found");
+                return;
+            }
+            m.setAccessible(true);
+            module.hook(m)
+                    .setId("table_tokens")
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept(chain -> {
                         Object r = chain.proceed();
-                        Object self = chain.getThisObject();
-                        if (self instanceof android.app.Activity) {
+                        Object a0 = chain.getArg(0);
+                        if (a0 instanceof Context) {
                             try {
-                                ThemeBg.apply((android.app.Activity) self);
+                                ThemeBg.applyTokens((Context) a0);
                             } catch (Throwable t) {
-                                Logx.e(T, "theme apply failed", t);
+                                Logx.w(T, "applyTokens after loadRes failed: " + t);
                             }
                         }
                         return r;
                     });
-            hooks++;
+            Logx.i(T, "hooked TimeTableDimensionRes#loadRes (theme tokens)");
+        } catch (Throwable t) {
+            Logx.w(T, "hookTableTokens failed: " + t);
         }
-        Logx.i(T, "hooked table theme on " + cls + " (" + hooks + " entry points)");
     }
+
     /**
-     * 课表整张是 TableView 自绘（canvas）。在它 onDraw 之前把主题背景铺上去，
-     * 这样背景就在格子和课程卡片之下、又不会被不透明容器盖掉。
+     * 「课表管理」里点某张课表时，宿主会 changeDefaultCalendar + startActivity(SchoolTimeTableActivity,
+     * launch_type=2) —— 也就是弹回老的独立课表页，而主页里的课表还停在旧表。
+     *
+     * 现在课表是主页的一个页面：这种情况下直接把老页面 finish 掉，改成重载主页里的课表页
+     *（HostTablePage.refresh 会重新读 sp_key_current_course_table，自然切到新表）。
+     * 只拦 launch_type=2（课表管理那条路），其它入口（桌面快捷方式等）照旧。
      */
-    private static void hookTableCanvas(XposedModule module, ClassLoader host) {
-        Class<?> tv = resolve(host, "com.android.calendar.card.schooltimetable.view.TableView");
-        if (tv == null) return;
+    private static void hookBlockLegacyTablePage(XposedModule module, ClassLoader host) {
+        Class<?> c = resolve(host, "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity");
+        if (c == null) return;
         Method m = null;
-        for (Method cand : tv.getDeclaredMethods()) {
-            if (cand.getName().equals("onDraw") && cand.getParameterCount() == 1
-                    && cand.getParameterTypes()[0] == android.graphics.Canvas.class) {
+        for (Method cand : c.getDeclaredMethods()) {
+            if (cand.getName().equals("onCreate") && cand.getParameterCount() == 1) {
                 m = cand;
                 break;
             }
         }
         if (m == null) {
-            Logx.w(T, "TableView#onDraw(Canvas) not found");
+            Logx.w(T, "SchoolTimeTableActivity#onCreate not found");
             return;
         }
         m.setAccessible(true);
         module.hook(m)
-                .setId("table_canvas_bg")
+                .setId("table_page_from_manage")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(chain -> {
                     Object self = chain.getThisObject();
-                    Object a0 = chain.getArg(0);
-                    if (self instanceof android.view.View && a0 instanceof android.graphics.Canvas) {
-                        android.view.View v = (android.view.View) self;
+                    Object arg = chain.getArg(0);
+                    if (!(self instanceof android.app.Activity)) return chain.proceed();
+                    android.app.Activity act = (android.app.Activity) self;
+                    String launchType = null;
+                    try {
+                        android.content.Intent it = act.getIntent();
+                        launchType = it == null ? null : it.getStringExtra("launch_type");
+                    } catch (Throwable ignored) {
+                    }
+                    if ("2".equals(launchType) && HostTablePage.showing()) {
+                        Logx.i(T, "课表管理切换课表：老课表页起来后立刻收掉，改为重载主页课表");
+                        MainTabHook.keepTableMode();
+                        // 必须走完 super.onCreate()，否则框架抛 SuperNotCalledException 直接把进程干掉
+                        Object r = chain.proceed();
+                        HostTablePage.refresh();
+                        act.finish();
+                        act.overridePendingTransition(0, 0);
+                        // 课表管理页一起收掉：切换完直接回主页的课表页，而不是停在管理列表
                         try {
-                            ThemeBg.drawBgOnCanvas((android.graphics.Canvas) a0, v.getWidth(), v.getHeight());
-                        } catch (Throwable t) {
-                            Logx.w(T, "canvas bg failed: " + t);
+                            android.app.Activity mng = manageRef == null ? null : manageRef.get();
+                            if (mng != null && !mng.isFinishing()) {
+                                mng.finish();
+                                Logx.i(T, "课表管理页已收起");
+                            }
+                        } catch (Throwable ignored) {
                         }
+                        return r;
                     }
                     return chain.proceed();
                 });
-        Logx.i(T, "hooked TableView#onDraw for theme background");
+        Logx.i(T, "hooked SchoolTimeTableActivity#onCreate (block page-from-manage)");
     }
+
+    /** 课表管理页实例：切换课表后要把它一起收掉，用户直接回到主页课表页 */
+    static volatile java.lang.ref.WeakReference<android.app.Activity> manageRef = null;
+
+    private static void hookManageActivity(XposedModule module, ClassLoader host) {
+        Class<?> c = resolve(host, "com.android.calendar.card.schooltimetable.CourseTableManageActivity");
+        if (c == null) return;
+        Method m = null;
+        for (Method cand : c.getDeclaredMethods()) {
+            if (cand.getName().equals("onCreate") && cand.getParameterCount() == 1) {
+                m = cand;
+                break;
+            }
+        }
+        if (m == null) return;
+        m.setAccessible(true);
+        module.hook(m)
+                .setId("manage_activity_track")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(chain -> {
+                    Object r = chain.proceed();
+                    Object self = chain.getThisObject();
+                    if (self instanceof android.app.Activity) {
+                        manageRef = new java.lang.ref.WeakReference<>((android.app.Activity) self);
+                        Logx.i(T, "课表管理页已记录（切换课表后随老课表页一起收起）");
+                    }
+                    return r;
+                });
+        Logx.i(T, "hooked CourseTableManageActivity#onCreate");
+    }
+
     /** 课程提醒页：追加「早晨闹钟」那张卡片 */
     private static void hookReminderPreferences(XposedModule module, ClassLoader host) {
         final String cls = "com.android.calendar.card.schooltimetable.CourseReminderFragment";
@@ -416,3 +484,10 @@ final class Hooks {
         }
     }
 }
+
+
+
+
+
+
+

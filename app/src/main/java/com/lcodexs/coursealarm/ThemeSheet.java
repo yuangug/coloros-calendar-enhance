@@ -176,7 +176,7 @@ final class ThemeSheet {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(a, 8);
         scrim.setLayoutParams(slp);
-        int curScrim = Prefs.themeScrim();
+        int curScrim = ThemeStore.scrim(a);
         int[][] levels = {{60, 0}, {120, 1}, {190, 2}};
         String[] names = {"浅", "中", "深"};
         for (int i = 0; i < names.length; i++) {
@@ -188,7 +188,7 @@ final class ThemeSheet {
             lp.rightMargin = dp(a, 10);
             chip.setLayoutParams(lp);
             chip.setOnClickListener(v -> {
-                Prefs.setThemeScrim(value);
+                ThemeStore.setScrim(a, value);
                 ThemeBg.apply(a);
                 buildMain(a, dlg, content, cardColor, fg, sub, accent, false);
             });
