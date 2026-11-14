@@ -114,6 +114,21 @@ final class Ref {
     }
 
     /**
+     * 按形参类型「找」方法（不调用）。宿主把 androidx 的名字一起混淆时（ViewPager2#setCurrentItem → m），
+     * 名字查不到、类型查得到；返回的 Method 由调用方自己 invoke，好用返回值判断成败。
+     */
+    static Method methodByTypes(Class<?> c, Class<?>... types) {
+        for (Class<?> k = c; k != null && k != Object.class; k = k.getSuperclass()) {
+            for (Method m : k.getDeclaredMethods()) {
+                if (!sameTypes(m.getParameterTypes(), types)) continue;
+                m.setAccessible(true);
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 按「参数类型」调用：宿主把 androidx 的方法名也一起混淆了（ViewPager2#setCurrentItem → m），
      * 但形参类型 (int, boolean) 不会变，所以这条路比名字可靠。
      */
@@ -135,8 +150,7 @@ final class Ref {
         return null;
     }
 
-    private static boolean sameTypes(Class<?>[] a, Class<?>[] b) {
-        if (a.length != b.length) return false;
+    private static boolean sameTypes(Class<?>[] a, Class<?>[] b) {        if (a.length != b.length) return false;
         for (int i = 0; i < a.length; i++) {
             if (a[i] != b[i]) return false;
         }

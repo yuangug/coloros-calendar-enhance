@@ -31,6 +31,10 @@ final class BarMode {
 
     static void enter(Activity a) {
         active = true;
+        if (MainTabHook.newBar) {
+            enterNew(a);
+            return;
+        }
         // 左＝课表自己的视图按钮（宿主那两个圆角矩形图标），右＝课表 ⋮
         swapIcon(a, "float_view_menu_button", "menu_mouth_handoff_default_icon_v2", true);
         swapIcon(a, "float_add_button", "table_action_more", false);
@@ -42,11 +46,50 @@ final class BarMode {
 
     static void exit(Activity a) {
         active = false;
+        if (MainTabHook.newBar) {
+            exitNew(a);
+            return;
+        }
         restoreIcon(a, "float_view_menu_button", true);
         restoreIcon(a, "float_add_button", false);
         setBarBackdrop(a, false);
         setWindowBackdrop(a, false);
         hardenButtons(a, false);
+    }
+
+    // ── 17.x 新底栏（COUIBottomFloatingAccessoryNavigationBar） ───────────────
+
+    private static android.graphics.drawable.Drawable savedStartIcon, savedEndIcon;
+
+    /**
+     * 新底栏没有 float_view_menu_button / float_add_button，取而代之的是左右两个「附件」圆钮：
+     *   左（start accessory）= 视图切换，右（end accessory）= 新建日程
+     * 课表页把它们换成 周次选择 / 课表 ⋮，点击由 {@link NewBar} 包的 listener 接管
+     * （BarMode.active 为 true 时才改道，日历/待办页一点不受影响）。
+     */
+    private static void enterNew(Activity a) {
+        Object bar = NewBar.barOf(a);
+        if (bar == null) {
+            Logx.w(T, "新底栏控件不存在，课表页按钮不改");
+            return;
+        }
+        savedStartIcon = NewBar.swapAccessory(bar, true, a, "ic_for_week_24");
+        savedEndIcon = NewBar.swapAccessory(bar, false, a, "table_action_more");
+        setBarBackdrop(a, true);
+        setWindowBackdrop(a, true);
+        selectSegment(a, 2);
+    }
+
+    private static void exitNew(Activity a) {
+        Object bar = NewBar.barOf(a);
+        if (bar != null) {
+            NewBar.restoreAccessory(bar, true, savedStartIcon);
+            NewBar.restoreAccessory(bar, false, savedEndIcon);
+            savedStartIcon = null;
+            savedEndIcon = null;
+        }
+        setBarBackdrop(a, false);
+        setWindowBackdrop(a, false);
     }
 
     /** 主题在课表页里被改过：把顶部留白条同步刷一遍（底栏底衬是恒透明的，不用重刷） */
@@ -213,8 +256,12 @@ final class BarMode {
 
     // ── 分段按钮 ───────────────────────────────────────────────────────────
 
-    /** 让胶囊的高亮落在指定分段上（2 = 课程表）；宿主回调会再进 changeType，由 MainTabHook 去抖 */
+    /** 让胶囊的高亮落在指定分段上（2 = 课程表）；宿主回调会再进 changeType/s，由 MainTabHook 去抖 */
     static void selectSegment(Activity a, int idx) {
+        if (MainTabHook.newBar) {
+            NewBar.selectItem(a, idx == 2);
+            return;
+        }
         View picker = a.findViewById(id(a, "sliding_date_picker"));
         if (picker == null) {
             Logx.w(T, "sliding_date_picker 不存在");

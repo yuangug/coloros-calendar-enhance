@@ -102,9 +102,14 @@ final class Hooks {
         if (menu.findItem(ID_IMPORT) != null && menu.findItem(ID_EXPORT) != null) return;
         if (menu.findItem(ID_IMPORT) != null) menu.removeItem(ID_IMPORT);
         if (menu.findItem(ID_EXPORT) != null) menu.removeItem(ID_EXPORT);
-        if (menu.findItem(ID_HOST_SCHOOL_TABLE) != null) {
+        // 宿主的「课程表」菜单项 id 会随版本漂（16.24.2 = 0x7f0a070f，17.3.70 = 0x7f0a072c）
+        int hostId = act.getResources().getIdentifier("school_table", "id", act.getPackageName());
+        if (hostId != 0 && menu.findItem(hostId) != null) {
+            menu.removeItem(hostId);
+            Logx.i(T, "menu: hid host 课程表 item (id=0x" + Integer.toHexString(hostId) + ")");
+        } else if (menu.findItem(ID_HOST_SCHOOL_TABLE) != null) {
             menu.removeItem(ID_HOST_SCHOOL_TABLE);
-            Logx.i(T, "menu: hid host 课程表 item");
+            Logx.i(T, "menu: hid host 课程表 item (legacy id)");
         }
 
         android.view.MenuItem imp = menu.add(android.view.Menu.NONE, ID_IMPORT, 100,

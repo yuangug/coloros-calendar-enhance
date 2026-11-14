@@ -37,18 +37,30 @@ final class MainTabHook {
     private static final String TAB_COURSE = "课程表";
     private static final int TAB_INDEX_COURSE = 2;
 
+    /** 底栏版本：false = 16.x 纯文字分段按钮；true = 17.x COUI 图标胶囊（见 {@link NewBar}） */
+    static volatile boolean newBar = false;
+
     private MainTabHook() {
     }
 
     static void install(XposedModule module, ClassLoader host) {
-        hookSegmentButtons(module, host);
+        newBar = NewBar.available(host);
+        Logx.i(T, "底栏版本：" + (newBar
+                ? "17.x COUIBottomFloatingAccessoryNavigationBar（图标胶囊 + 左右附件）"
+                : "16.x COUISegmentButtonLayout（文字分段 + 两个圆钮）"));
+        if (newBar) {
+            NewBar.install(module, host);
+        } else {
+            hookSegmentButtons(module, host);
+            hookBottomClicks(module, host);
+            hookBarTouch(module, host);
+        }
         hookChangeType(module, host);
         hookToolbarMenu(module, host);
         hookHomePopupFilter(module, host);
-        hookBottomClicks(module, host);
-        hookBarTouch(module, host);
         hookMainResume(module, host);
         hookMainActivityResult(module, host);
+        TableViewBridge.install(module, host);   // 点课程 → 宿主详情面板（两版都有）
     }
 
     // ── 1. 底栏分段按钮加「课程表」────────────────────────────────────────────
@@ -93,6 +105,11 @@ final class MainTabHook {
     /** 上一次真正按到底栏的时刻：用来区分「用户点的」和「宿主自己同步状态触发的」 */
     private static volatile long lastBarTouchMs = 0L;
 
+    /** 新底栏（COUIBottomFloatingNavigationBarMenuView）在 ACTION_DOWN 时回填 */
+    static void noteUserBarTouch() {
+        lastBarTouchMs = System.currentTimeMillis();
+    }
+
     static void keepTableMode() {
         keepTableUntil = System.currentTimeMillis() + 1500L;
         Logx.i(T, "keepTableMode 开启（切换课表后回到课表页）");
@@ -110,11 +127,18 @@ final class MainTabHook {
     private static void hookChangeType(XposedModule module, ClassLoader host) {
         Class<?> fold = Ref.cls(host, "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout");
         if (fold == null) return;
+        // 16.x: changeType(int)；17.x: s(int) —— 同一个语义（setMType + mTypeChangeListener）
         Method m = Ref.methodOf(fold, "changeType", int.class);
+        String name = "changeType";
         if (m == null) {
-            Logx.w(T, "DateTabFoldLayout#changeType(int) not found");
+            m = Ref.methodOf(fold, "s", int.class);
+            name = "s";
+        }
+        if (m == null) {
+            Logx.w(T, "DateTabFoldLayout 里既没有 changeType(int) 也没有 s(int)");
             return;
         }
+        final String hooked = name;
         module.hook(m)
                 .setId("tab_switch")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -129,32 +153,35 @@ final class MainTabHook {
                     if (type == TAB_INDEX_COURSE) {
                         long now = System.currentTimeMillis();
                         if (!HostTablePage.showing()) {
-                            Logx.i(T, "tab → 课程表（主页内嵌，不新建页面）");
+                            Logx.i(T, "tab(" + hooked + ") → 课程表（主页内嵌，不新建页面）");
                             HostTablePage.show(act);
                             BarMode.enter(act);
                             applyTitle(act, true);
                         } else if (now - lastSwitchMs > 400) {
-                            Logx.i(T, "tab → 课程表（已在课表页，忽略重复回调）");
+                            Logx.i(T, "tab(" + hooked + ") → 课程表（已在课表页，忽略重复回调）");
+                            BarMode.selectSegment(act, TAB_INDEX_COURSE);
                         }
                         lastSwitchMs = now;
                         return null;   // 不交给宿主：它只有 日历 / 待办 两种类型
                     }
 
                     if (inKeepWindow() && !isUserTap()) {
-                        Logx.i(T, "tab → " + (type == 1 ? "待办" : "日历") + " 被忽略（切换课表后的保护窗，非用户点击）");
+                        Logx.i(T, "tab(" + hooked + ") → " + (type == 1 ? "待办" : "日历")
+                                + " 被忽略（切换课表后的保护窗，非用户点击）");
                         BarMode.selectSegment(act, TAB_INDEX_COURSE);
                         return null;
                     }
                     keepTableUntil = 0L;   // 用户真的切了，保护窗立即失效
                     if (HostTablePage.showing()) {
-                        Logx.i(T, "tab → " + (type == 1 ? "待办" : "日历") + "（收起课表页）");
+                        Logx.i(T, "tab(" + hooked + ") → " + (type == 1 ? "待办" : "日历")
+                                + "（收起课表页）");
                         HostTablePage.hide();
                         BarMode.exit(act);
                         applyTitle(act, false);
                     }
                     return chain.proceed();
                 });
-        Logx.i(T, "hooked DateTabFoldLayout#changeType");
+        Logx.i(T, "hooked DateTabFoldLayout#" + hooked + "(int)");
     }
 
     /** Context 可能是 ContextWrapper 链，逐层剥到 Activity */
@@ -188,9 +215,15 @@ final class MainTabHook {
                     Object self = chain.getThisObject();
                     android.view.Menu menu = menuOf(self);
                     if (menu != null && self instanceof View) {
-                        // 按 id + 标题双保险藏「课程表」：宿主换版本时 id 会漂，
-                        // 而中文标题就是「课程表」（入口已经在底栏第三段）
-                        android.view.MenuItem item = menu.findItem(ID_SCHOOL_TABLE);
+                        // 按 id + 标题双保险藏「课程表」：宿主换版本时 id 会漂
+                        // （16.24.2 = 0x7f0a070f，17.3.70 = 0x7f0a072c），所以按名字现查；
+                        // 中文标题仍然兜底（入口已经在底栏第三段）
+                        int sid = self instanceof View
+                                ? ((View) self).getContext().getResources()
+                                .getIdentifier("school_table", "id",
+                                        ((View) self).getContext().getPackageName())
+                                : 0;
+                        android.view.MenuItem item = sid == 0 ? null : menu.findItem(sid);
                         if (item != null && item.isVisible()) {
                             item.setVisible(false);
                             Logx.i(T, "overflow menu: hid 课程表 item (by id)");
@@ -380,6 +413,16 @@ final class MainTabHook {
                                 boolean done = ThemeBg.onPicked(act, u);
                                 CurriculumIo.toast(act, done ? "背景已应用" : "这张图片读取失败");
                             }
+                        }
+                        return null;
+                    }
+                    // 新建/编辑课程页回来了：刷新课表页（数据已写进宿主 Provider）
+                    if (a0 instanceof Integer && (Integer) a0 == CourseEdit.REQ_EDIT
+                            && chain.getThisObject() instanceof Activity) {
+                        Logx.i(T, "course edit result res=" + a1);
+                        if (HostTablePage.showing()) {
+                            HostTablePage.refresh();
+                            BarMode.refreshBackdrop((Activity) chain.getThisObject());
                         }
                         return null;
                     }

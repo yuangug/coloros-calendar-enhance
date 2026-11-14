@@ -135,6 +135,7 @@ final class HostTablePage {
         long now = HostTableData.currentTableId(a);
         if (now > 0 && now != lastCalendarId) {
             Logx.i(T, "课表已切换（" + lastCalendarId + " → " + now + "），重载页面");
+            page.viewWeekIndex = -1;   // 换课表 → 回到本周
             page.reload();
         }
     }
@@ -150,12 +151,30 @@ final class HostTablePage {
 
     static void gotoToday() {
         if (!showing()) return;
+        page.viewWeekIndex = -1;                 // 回到「跟随本周」
         page.gotoWeek(page.data == null ? 1 : page.data.currentWeek());
+    }
+
+    /** 宿主周次面板选完回调（0 起的周序号）→ 跳到对应周 */
+    static void jumpTo(int week) {
+        if (!showing()) return;
+        page.gotoWeek(week);
     }
 
     static void showWeekPicker(View anchor) {
         if (!showing()) return;
         page.weekPicker(anchor);
+    }
+
+    /** 宿主课表里点左上角「第 N 周 ▾」→ 走同一个周次面板 */
+    static void showWeekSheet() {
+        if (!showing()) return;
+        page.weekPicker(null);
+    }
+
+    /** 当前课表数据（课程详情面板补时间用） */
+    static HostTableData currentData() {
+        return page == null ? null : page.data;
     }
 
     static void showMenu(View anchor) {
@@ -402,7 +421,10 @@ final class HostTablePage {
                     // 关键：**上屏之前**先定好当前周。ViewPager2 会把它存成 pendingCurrentItem，
                     // 首次 layout 直接落在这一页 —— 否则会先画出第 1 周再跳过来（肉眼就是闪一下）。
                     // （宿主把 setCurrentItem 的名字也混淆了，按形参类型 (int, boolean) 找）
-                    final int idx = d.currentWeekIndex0();
+                    // viewWeekIndex >= 0 表示用户刚选过周次：按那一周建页，和首屏是同一路径。
+                    final int idx = viewWeekIndex >= 0
+                            ? Math.max(0, Math.min(viewWeekIndex, Math.max(0, d.weekCount - 1)))
+                            : d.currentWeekIndex0();
                     Ref.callByTypes(pv, new Class<?>[]{int.class, boolean.class}, idx, false);
                     pv.setAlpha(0f);
 
@@ -459,15 +481,57 @@ final class HostTablePage {
 
         // ── 周次 ───────────────────────────────────────────────────────────
 
+        /**
+         * 当前看的是哪一周（0 起）；-1 = 跟随「本周」。
+         * 跳周走的是「按目标周重建页面」，和宿主 SchoolTimeTableActivity 选完周次后 refreshCourseData()
+         * 是同一个做法 —— 比在已有 ViewPager2 上 setCurrentItem 稳：
+         * 后者虽然能跳过去，但宿主的课表里时间列/日列是几块联动滚动区，跳完之后会残留几十像素的
+         * 横向偏移（左边「11周」和时间被切掉一截），重建就没有这个问题。
+         */
+        int viewWeekIndex = -1;
+
         void gotoWeek(int week) {
-            if (data == null || pager == null) return;
+            if (data == null) return;
             int idx = Math.max(0, Math.min(week - 1, Math.max(0, data.weekCount - 1)));
-            try {
-                Ref.callName(pager, "setCurrentItem", idx, true);
-                Logx.i(T, "tablepage: jump week " + week + " (index " + idx + ")");
-            } catch (Throwable t) {
-                Logx.w(T, "tablepage: setCurrentItem failed: " + t);
+            boolean same = idx == (viewWeekIndex >= 0 ? viewWeekIndex : data.currentWeekIndex0());
+            if (same) {
+                // 已经在目标周：只做一次轻量对齐，不重建
+                if (pager != null) pagerTo(pager, idx, false);
+                Logx.i(T, "tablepage: 已在第 " + week + " 周，无需跳转");
+                return;
             }
+            viewWeekIndex = idx;
+            Logx.i(T, "tablepage: jump week " + week + " (index " + idx + ") → 按目标周重建");
+            reload();
+        }
+
+        /**
+         * 跳到某一页。**不能按名字调**：宿主把 ViewPager2#setCurrentItem 混淆成了 m，
+         * 之前「回到本周 / 选择周次」点了没反应就是卡在这（两个版本都一样）。
+         * 名字还在就优先用名字，否则按形参类型 (int, boolean) 找 —— 和首屏定位用的是同一条路。
+         */
+        private static boolean pagerTo(Object pv, int idx, boolean smooth) {
+            try {
+                Method m = Ref.methodByArity(pv.getClass(), "setCurrentItem", 2);
+                if (m != null) {
+                    m.invoke(pv, idx, smooth);
+                    return true;
+                }
+                m = Ref.methodByTypes(pv.getClass(), int.class, boolean.class);
+                if (m != null) {
+                    m.invoke(pv, idx, smooth);
+                    Logx.i(T, "tablepage: setCurrentItem 按类型找到 " + m.getName() + "(int,boolean)");
+                    return true;
+                }
+                m = Ref.methodByArity(pv.getClass(), "setCurrentItem", 1);
+                if (m != null) {
+                    m.invoke(pv, idx);
+                    return true;
+                }
+            } catch (Throwable t) {
+                Logx.w(T, "tablepage: setCurrentItem 调用失败 " + t);
+            }
+            return false;
         }
 
         void weekPicker(View anchor) {
@@ -475,6 +539,12 @@ final class HostTablePage {
                 reload();
                 return;
             }
+            // 宿主原生的「选周次」面板（COUI 底部面板 + 周网格 + 本周标记），样式和独立课表页一模一样
+            if (HostWeekSheet.show(act, host, data)) {
+                Logx.i(T, "tablepage: 周次选择 → 宿主原面板 CurrentWeekSelectFragment");
+                return;
+            }
+            Logx.w(T, "tablepage: 宿主周次面板不可用，回落自绘面板");
             final Dialog dlg = new Dialog(act);
             dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
             Window w = dlg.getWindow();
@@ -758,6 +828,8 @@ final class HostTablePage {
         }
     }
 }
+
+
 
 
 
