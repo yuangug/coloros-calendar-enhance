@@ -47,7 +47,7 @@ final class Notifier {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
             Notification.Builder b = new Notification.Builder(ctx, CHANNEL)
-                    .setSmallIcon(ctx.getApplicationInfo().icon)
+                    .setSmallIcon(R.drawable.ic_stat_course)
                     .setContentTitle(title)
                     .setContentText(text)
                     .setStyle(new Notification.BigTextStyle().bigText(text))
@@ -82,3 +82,4 @@ final class Notifier {
         post(ctx, title, sb.toString());
     }
 }
+

@@ -40,6 +40,13 @@ final class HostPicker {
             "com.coloros.calendar.widget.bottomsheetdialog.BottomDialogSureListener"
     };
 
+    /** 弹窗构建方法：16.x = P(...)，17.x 改名成 Q(...)（都是 6 参，语义一致） */
+    private static final String[] BUILDER_METHODS = {"P", "Q"};
+    /** 选中项 getter：16.x = R()，17.x = S()，另有 jadx 还原名兜底 */
+    private static final String[] INDEX_GETTERS = {"R", "S", "getCurrentIndex", "getF21178z"};
+    /** companion 字段：16.x = B，17.x = C（都有 c(int) 出文案） */
+    private static final String[] COMPANION_FIELDS = {"B", "C"};
+
     /** 宿主滚轮取值域：index 1..12 → 5..60 分钟（5 分钟一档） */
     static final int STEP = 5;
     static final int MIN_INDEX = 1;
@@ -66,12 +73,22 @@ final class HostPicker {
         int index = indexOf(minutes);
         try {
             Class<?> dlg = Class.forName(CLS_DIALOG_CANDIDATES[0], false, ctx.getClassLoader());
-            Field b = dlg.getDeclaredField("B");          // companion
-            b.setAccessible(true);
-            Object companion = b.get(null);
-            Method c = companion.getClass().getMethod("c", int.class);
-            Object s = c.invoke(companion, index);
-            if (s instanceof String && !((String) s).isEmpty()) return (String) s;
+            Object companion = null;
+            for (String fn : COMPANION_FIELDS) {        // 16.x = B，17.x = C
+                try {
+                    Field f = dlg.getDeclaredField(fn);
+                    if (f.getType() == String.class) continue;
+                    f.setAccessible(true);
+                    Object v = f.get(null);
+                    if (v != null) { companion = v; break; }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (companion != null) {
+                Method c = companion.getClass().getMethod("c", int.class);
+                Object s = c.invoke(companion, index);
+                if (s instanceof String && !((String) s).isEmpty()) return (String) s;
+            }
         } catch (Throwable ignored) {
         }
         try {
@@ -92,7 +109,7 @@ final class HostPicker {
             Class<?> dlgCls = resolve(cl, CLS_DIALOG_CANDIDATES);
             Class<?> listenerCls = resolve(cl, CLS_LISTENER_CANDIDATES);
             boolean ok = dlgCls != null && listenerCls != null
-                    && findMethod(dlgCls, "P", 6) != null && readIndexMethod(dlgCls) != null;
+                    && findBuilder(dlgCls) != null && readIndexMethod(dlgCls) != null;
             Logx.i(T, "host picker probe: ok=" + ok
                     + " dialog=" + (dlgCls == null ? "?" : dlgCls.getName())
                     + " listener=" + (listenerCls == null ? "?" : listenerCls.getName())
@@ -116,7 +133,7 @@ final class HostPicker {
             ClassLoader cl = activity.getClassLoader();
             Class<?> dlgCls = resolve(cl, CLS_DIALOG_CANDIDATES);
             Class<?> listenerCls = resolve(cl, CLS_LISTENER_CANDIDATES);
-            Method p = dlgCls == null ? null : findMethod(dlgCls, "P", 6);
+            Method p = dlgCls == null ? null : findBuilder(dlgCls);
             if (dlgCls == null || listenerCls == null || p == null) {
                 Logx.w(T, "host picker unavailable (dialog/listener/P missing)");
                 return false;
@@ -171,7 +188,7 @@ final class HostPicker {
             ClassLoader cl = activity.getClassLoader();
             Class<?> dlgCls = resolve(cl, CLS_DIALOG_CANDIDATES);
             Class<?> listenerCls = resolve(cl, CLS_LISTENER_CANDIDATES);
-            Method p = dlgCls == null ? null : findMethod(dlgCls, "P", 6);
+            Method p = dlgCls == null ? null : findBuilder(dlgCls);
             if (dlgCls == null || listenerCls == null || p == null) return false;
 
             final Object dlg = dlgCls.getConstructor().newInstance();
@@ -333,7 +350,7 @@ final class HostPicker {
     }
 
     private static Method readIndexMethod(Class<?> dlgCls) {
-        for (String name : new String[]{"R", "getF21178z"}) {
+        for (String name : INDEX_GETTERS) {
             Method m = findMethod(dlgCls, name, 0);
             if (m != null && m.getReturnType() == int.class) return m;
         }
@@ -350,6 +367,17 @@ final class HostPicker {
         return null;
     }
 
+    /** 弹窗构建方法：16.x 的 P(...) / 17.x 的 Q(...)，都是 6 参 */
+    private static Method findBuilder(Class<?> dlgCls) {
+        for (String name : BUILDER_METHODS) {
+            Method m = findMethod(dlgCls, name, 6);
+            if (m != null) {
+                Logx.i(T, "host picker builder = " + name + "(…6)");
+                return m;
+            }
+        }
+        return null;
+    }
     private static Method findMethod(Class<?> c, String name, int argc) {
         for (Class<?> k = c; k != null; k = k.getSuperclass()) {
             for (Method m : k.getDeclaredMethods()) {
@@ -359,3 +387,5 @@ final class HostPicker {
         return null;
     }
 }
+
+

@@ -61,6 +61,7 @@ final class MainTabHook {
         hookMainResume(module, host);
         hookMainActivityResult(module, host);
         TableViewBridge.install(module, host);   // 点课程 → 宿主详情面板（两版都有）
+
     }
 
     // ── 1. 底栏分段按钮加「课程表」────────────────────────────────────────────
@@ -215,28 +216,29 @@ final class MainTabHook {
                     Object self = chain.getThisObject();
                     android.view.Menu menu = menuOf(self);
                     if (menu != null && self instanceof View) {
-                        // 按 id + 标题双保险藏「课程表」：宿主换版本时 id 会漂
-                        // （16.24.2 = 0x7f0a070f，17.3.70 = 0x7f0a072c），所以按名字现查；
-                        // 中文标题仍然兜底（入口已经在底栏第三段）
-                        int sid = self instanceof View
-                                ? ((View) self).getContext().getResources()
+                        // 把「课程表」从菜单里**删掉**，不能只 setVisible(false)：
+                        // COUIActionMenuView#tryBuildOverflowMenu 按 mMenu.getNonActionItems() 建弹出列表，
+                        // 点击回调又用同一个列表按 **位置** 取 item —— 隐藏项仍留在列表里，
+                        // 于是「显示少一项、派发多一项」：点「跳转指定日期」实际执行的是「课程表」。
+                        // （宿主对 findItem(school_table) 做了 null 判断，删掉是安全的。）
+                        java.util.List<Integer> kill = new java.util.ArrayList<>();
+                        int sid = ((View) self).getContext().getResources()
                                 .getIdentifier("school_table", "id",
-                                        ((View) self).getContext().getPackageName())
-                                : 0;
-                        android.view.MenuItem item = sid == 0 ? null : menu.findItem(sid);
-                        if (item != null && item.isVisible()) {
-                            item.setVisible(false);
-                            Logx.i(T, "overflow menu: hid 课程表 item (by id)");
-                        }
+                                        ((View) self).getContext().getPackageName());
+                        if (sid != 0 && menu.findItem(sid) != null) kill.add(sid);
                         for (int i = 0; i < menu.size(); i++) {
                             android.view.MenuItem mi = menu.getItem(i);
-                            if (mi == null || !mi.isVisible()) continue;
+                            if (mi == null) continue;
                             CharSequence title = mi.getTitle();
-                            if (title != null && TAB_COURSE.contentEquals(title)) {
-                                mi.setVisible(false);
-                                Logx.i(T, "overflow menu: hid 课程表 item (by title, id=0x"
-                                        + Integer.toHexString(mi.getItemId()) + ")");
+                            if (title != null && TAB_COURSE.contentEquals(title)
+                                    && !kill.contains(mi.getItemId())) {
+                                kill.add(mi.getItemId());
                             }
+                        }
+                        for (int id : kill) {
+                            menu.removeItem(id);
+                            Logx.i(T, "overflow menu: removed 课程表 item (id=0x"
+                                    + Integer.toHexString(id) + ")");
                         }
                         // 不再往主页顶栏菜单里塞「导入/导出/课表主题」：这些入口已经全部搬到
                         // 课表页右下角的 ⋮（COUIPopupListWindow）。日历/待办页的 ⋮ 保持宿主原样。
@@ -541,6 +543,9 @@ final class MainTabHook {
                 == Configuration.UI_MODE_NIGHT_YES;
     }
 }
+
+
+
 
 
 

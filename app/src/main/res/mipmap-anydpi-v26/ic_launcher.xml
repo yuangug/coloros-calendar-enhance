@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 26+ 自适应图标：白渐变背景 + 书本前景（上黑下蓝）+ monochrome 主题版 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_bg" />
+    <foreground android:drawable="@drawable/ic_launcher_fg" />
+    <monochrome android:drawable="@drawable/ic_launcher_mono" />
+</adaptive-icon>
