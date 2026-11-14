@@ -166,21 +166,5 @@ adb logcat -s COURSEALARM
 | `host saveCoursesAndTable ok: courses=N` | 新建课表成功 |
 | `insert done: N/M` | 真正写进数据库的门数 |
 
----
 
-## 已知限制
-
-- 图片课表、PDF 课表、纯 JS 动态拉数据（抓到的 DOM 里没有表格）不解析
-- 页面备注里「没有节次」的课不生成条目（只提示）
-- 新建课表后宿主不会自动切到新表，需要到「课表管理」里点一下
-- 早晨闹钟依赖宿主 `AlertReceiver` 存在，宿主大版本改动可能失效（届时打开 App 仍会补排）
-- 只适配 ColorOS 系日历的课表实现，其它 ROM 的日历不适用
-
-## 卸载
-
-```bash
-adb uninstall com.lcodexs.coursealarm
-```
-
-或在框架管理器里取消勾选。已写入的课表数据在宿主里，用「课表管理」删表即可（模块本身不存数据）。
 
