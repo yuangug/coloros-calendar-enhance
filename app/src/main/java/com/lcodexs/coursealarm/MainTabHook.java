@@ -44,6 +44,7 @@ final class MainTabHook {
         hookSegmentButtons(module, host);
         hookChangeType(module, host);
         hookToolbarMenu(module, host);
+        hookHomePopupFilter(module, host);
         hookBottomClicks(module, host);
         hookBarTouch(module, host);
         hookMainResume(module, host);
@@ -187,24 +188,72 @@ final class MainTabHook {
                     Object self = chain.getThisObject();
                     android.view.Menu menu = menuOf(self);
                     if (menu != null && self instanceof View) {
+                        // 按 id + 标题双保险藏「课程表」：宿主换版本时 id 会漂，
+                        // 而中文标题就是「课程表」（入口已经在底栏第三段）
                         android.view.MenuItem item = menu.findItem(ID_SCHOOL_TABLE);
                         if (item != null && item.isVisible()) {
                             item.setVisible(false);
-                            Logx.i(T, "overflow menu: hid 课程表 item");
+                            Logx.i(T, "overflow menu: hid 课程表 item (by id)");
                         }
-                        Activity act = asActivity(((View) self).getContext());
-                        if (act != null) {
-                            try {
-                                Hooks.injectMenuItems(act, menu);
-                                Logx.i(T, "overflow menu: injected items, size=" + menu.size());
-                            } catch (Throwable t) {
-                                Logx.w(T, "inject menu failed: " + t);
+                        for (int i = 0; i < menu.size(); i++) {
+                            android.view.MenuItem mi = menu.getItem(i);
+                            if (mi == null || !mi.isVisible()) continue;
+                            CharSequence title = mi.getTitle();
+                            if (title != null && TAB_COURSE.contentEquals(title)) {
+                                mi.setVisible(false);
+                                Logx.i(T, "overflow menu: hid 课程表 item (by title, id=0x"
+                                        + Integer.toHexString(mi.getItemId()) + ")");
                             }
                         }
+                        // 不再往主页顶栏菜单里塞「导入/导出/课表主题」：这些入口已经全部搬到
+                        // 课表页右下角的 ⋮（COUIPopupListWindow）。日历/待办页的 ⋮ 保持宿主原样。
                     }
                     return r;
                 });
         Logx.i(T, "hooked COUIToolbar#inflateMenu");
+    }
+
+    /**
+     * 主页右上角 ⋮ 的弹出菜单是宿主自己用 COUIPopupListWindow 现搭的（并不走我们 hook 的
+     * COUIToolbar#inflateMenu 那个 Menu 实例），所以「藏掉课程表项」要把它的条目列表也过滤一遍：
+     * 标题等于「课程表」的条目直接丢掉（入口已经在底栏第三段）。
+     */
+    private static void hookHomePopupFilter(XposedModule module, ClassLoader host) {
+        Class<?> win = Ref.cls(host, "com.coui.appcompat.poplist.COUIPopupListWindow");
+        Class<?> item = Ref.cls(host, "com.coui.appcompat.poplist.PopupListItem");
+        if (win == null || item == null) return;
+        Method m = Ref.methodOf(win, "setItemList", java.util.List.class);
+        if (m == null) {
+            Logx.w(T, "COUIPopupListWindow#setItemList(List) not found");
+            return;
+        }
+        Method getTitle = Ref.methodByArity(item, "getTitle", 0);
+        module.hook(m)
+                .setId("home_popup_filter")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(chain -> {
+                    Object a0 = chain.getArg(0);
+                    if (!(a0 instanceof java.util.List) || getTitle == null) return chain.proceed();
+                    java.util.List<?> in = (java.util.List<?>) a0;
+                    boolean hit = false;
+                    for (Object it : in) {
+                        Object t = Ref.call(it, getTitle);
+                        if (t instanceof CharSequence && TAB_COURSE.contentEquals((CharSequence) t)) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (!hit) return chain.proceed();
+                    java.util.List<Object> out = new java.util.ArrayList<>();
+                    for (Object it : in) {
+                        Object t = Ref.call(it, getTitle);
+                        if (t instanceof CharSequence && TAB_COURSE.contentEquals((CharSequence) t)) continue;
+                        out.add(it);
+                    }
+                    Logx.i(T, "home popup: 过滤掉「课程表」项（剩 " + out.size() + " 项）");
+                    return chain.proceed(new Object[]{out});
+                });
+        Logx.i(T, "hooked COUIPopupListWindow#setItemList (filter 课程表)");
     }
 
     private static android.view.Menu menuOf(Object self) {
@@ -449,6 +498,9 @@ final class MainTabHook {
                 == Configuration.UI_MODE_NIGHT_YES;
     }
 }
+
+
+
 
 
 
