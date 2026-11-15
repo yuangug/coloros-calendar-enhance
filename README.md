@@ -9,7 +9,7 @@
 装完照常用日历，只是「更多」菜单里多了两项：**导入课表**、**导出课表**。
 
 ---
-
+下载 ：https://github.com/Xposed-Modules-Repo/io.github.yuangug.coursealarm/releases/latest
 ## 功能
 
 ### 一、课程表就在主页
