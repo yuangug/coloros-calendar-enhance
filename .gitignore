@@ -17,3 +17,4 @@ keystore.properties
 # 产物与日志
 *.apk
 *.log
+__pycache__/

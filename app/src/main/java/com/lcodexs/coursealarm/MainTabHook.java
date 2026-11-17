@@ -60,6 +60,7 @@ final class MainTabHook {
         hookHomePopupFilter(module, host);
         hookMainResume(module, host);
         hookMainActivityResult(module, host);
+        hookMainLifecycle(module, host);
         TableViewBridge.install(module, host);   // 点课程 → 宿主详情面板（两版都有）
 
     }
@@ -96,6 +97,26 @@ final class MainTabHook {
 
     private static long lastSwitchMs = 0L;
 
+    static void openCoursePage(Activity activity) {
+        applyTitle(activity, true);
+        HostTablePage.show(activity);
+        BarMode.enter(activity);
+        BarMode.selectSegment(activity, TAB_INDEX_COURSE);
+    }
+
+    static boolean enforceCourseTitle(Activity activity) {
+        boolean changed = false;
+        for (String name : TITLE_VIEWS) {
+            View view = activity.findViewById(id(activity, name));
+            if (view != null && view.getVisibility() != View.GONE) {
+                if (!titleVisibility.containsKey(view)) titleVisibility.put(view, view.getVisibility());
+                view.setVisibility(View.GONE);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     /**
      * 「课表管理里切换课表」的保护窗：拦截掉老课表页之后，宿主 onResume 会把分段按钮
      * 同步回「日历」并回调 changeType(0)，把我们刚重载的课表页又收起来。
@@ -126,20 +147,13 @@ final class MainTabHook {
     }
 
     private static void hookChangeType(XposedModule module, ClassLoader host) {
-        Class<?> fold = Ref.cls(host, "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout");
-        if (fold == null) return;
-        // 16.x: changeType(int)；17.x: s(int) —— 同一个语义（setMType + mTypeChangeListener）
-        Method m = Ref.methodOf(fold, "changeType", int.class);
-        String name = "changeType";
-        if (m == null) {
-            m = Ref.methodOf(fold, "s", int.class);
-            name = "s";
-        }
-        if (m == null) {
-            Logx.w(T, "DateTabFoldLayout 里既没有 changeType(int) 也没有 s(int)");
+        Method m;
+        try { m = HostCompat.changeType(host); }
+        catch (ReflectiveOperationException error) {
+            Logx.e(T, "底栏切页接口不可用", error);
             return;
         }
-        final String hooked = name;
+        final String hooked = m.getName();
         module.hook(m)
                 .setId("tab_switch")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -155,9 +169,7 @@ final class MainTabHook {
                         long now = System.currentTimeMillis();
                         if (!HostTablePage.showing()) {
                             Logx.i(T, "tab(" + hooked + ") → 课程表（主页内嵌，不新建页面）");
-                            HostTablePage.show(act);
-                            BarMode.enter(act);
-                            applyTitle(act, true);
+                            openCoursePage(act);
                         } else if (now - lastSwitchMs > 400) {
                             Logx.i(T, "tab(" + hooked + ") → 课程表（已在课表页，忽略重复回调）");
                             BarMode.selectSegment(act, TAB_INDEX_COURSE);
@@ -369,25 +381,76 @@ final class MainTabHook {
                 .intercept(chain -> {
                     Object r = chain.proceed();
                     Object self = chain.getThisObject();
+                    if (self instanceof Activity) {
+                        Activity a = (Activity)self;
+                        if (TableEntryRoute.consume(a, a.getIntent())) return r;
+                        HostTablePage.prepare(a);
+                    }
                     if (self instanceof Activity && inKeepWindow()) {
                         Activity a = (Activity) self;
-                        HostTablePage.show(a);
-                        BarMode.enter(a);
-                        applyTitle(a, true);
-                        BarMode.selectSegment(a, TAB_INDEX_COURSE);
+                        openCoursePage(a);
                         Logx.i(T, "main resume(保护窗): 课表页已重新挂回");
                         return r;
                     }
                     if (self instanceof Activity && HostTablePage.showing()) {
                         Activity a = (Activity) self;
-                        BarMode.enter(a);
-                        applyTitle(a, true);
-                        HostTablePage.refreshIfTableChanged(a);
+                        openCoursePage(a);
                         Logx.i(T, "main resume: 课表页仍在，底栏/标题已重钉");
                     }
                     return r;
                 });
         Logx.i(T, "hooked AllInOneActivity#onResume");
+    }
+
+    private static void hookMainLifecycle(XposedModule module, ClassLoader host) {
+        Class<?> main = Ref.cls(host, TableEntryRoute.MAIN);
+        if (main == null) return;
+        Method save = Ref.methodOf(main, "onSaveInstanceState", android.os.Bundle.class);
+        if (save != null) module.hook(save).setId("main_course_save")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+                    Object result = chain.proceed();
+                    if (HostTablePage.activity() == chain.getThisObject() && HostTablePage.showing()) {
+                        android.os.Bundle state = (android.os.Bundle)chain.getArg(0);
+                        state.putBoolean(TableEntryRoute.OPEN, true);
+                        state.putInt("lspx_course_week", HostTablePage.viewingWeekIndex0());
+                    }
+                    return result;
+                });
+        Method create = Ref.methodOf(main, "onCreate", android.os.Bundle.class);
+        if (create != null) module.hook(create).setId("main_course_restore")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+                    Object result = chain.proceed();
+                    android.os.Bundle state = (android.os.Bundle)chain.getArg(0);
+                    if (state != null && state.getBoolean(TableEntryRoute.OPEN, false)) {
+                        Activity activity = (Activity)chain.getThisObject();
+                        Intent intent = activity.getIntent();
+                        if (intent != null && !intent.getBooleanExtra(TableEntryRoute.OPEN, false)) {
+                            intent.putExtra(TableEntryRoute.OPEN, true);
+                            intent.putExtra("selected_week", state.getInt("lspx_course_week", -1));
+                        }
+                    }
+                    return result;
+                });
+        Method newIntent = Ref.methodOf(main, "onNewIntent", Intent.class);
+        if (newIntent != null) module.hook(newIntent).setId("main_course_intent")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+                    Intent intent = (Intent)chain.getArg(0);
+                    if (intent != null && intent.getBooleanExtra(TableEntryRoute.OPEN, false)) keepTableMode();
+                    Object result = chain.proceed();
+                    TableEntryRoute.consume((Activity)chain.getThisObject(), intent);
+                    return result;
+                });
+        Method destroy = Ref.methodOf(main, "onDestroy");
+        if (destroy != null) module.hook(destroy).setId("main_course_destroy")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+                    Activity activity = (Activity)chain.getThisObject();
+                    if (HostTablePage.activity() == activity) {
+                        if (BarMode.active) BarMode.exit(activity);
+                        HostTablePage.destroy(activity);
+                        keepTableUntil = 0;
+                    }
+                    return chain.proceed();
+                });
     }
 
     // ── 6. 主题选图回调（从主页发起，不是从课表 Activity） ────────────────────
@@ -450,88 +513,23 @@ final class MainTabHook {
             "calendar_appBarLayout", "title_layout", "sub_title_layout", "title_divider", "fl_data_picker2"
     };
 
-    private static int savedAppBarHeight = -1;
+    private static final java.util.WeakHashMap<View, Integer> titleVisibility = new java.util.WeakHashMap<>();
 
-    private static void applyTitle(Activity a, boolean table) {
-        if (table) {
-            collapseAppBar(a);
-        } else {
-            expandAppBar(a);
-        }
-        // 其余标题视图（title_layout / 副标题 / 月周胶囊）直接收放：它们本身在 appbar 收起后
-        // 只剩页面顶部一条，跟着 appbar 的高度动画一起被盖掉，不需要单独做动画
-        int changed = 0;
+    private static void applyTitle(Activity activity, boolean table) {
+        // Resolve the final layout once. Height animations used to resize the pager,
+        // background crop and every native material surface on each frame.
         for (String name : TITLE_VIEWS) {
-            if ("calendar_appBarLayout".equals(name)) continue;
-            View v = a.findViewById(id(a, name));
-            if (v == null) continue;
-            int want = table ? View.GONE : View.VISIBLE;
-            if (v.getVisibility() != want) {
-                v.setVisibility(want);
-                changed++;
+            View view = activity.findViewById(id(activity, name));
+            if (view == null) continue;
+            if (table) {
+                if (!titleVisibility.containsKey(view)) titleVisibility.put(view, view.getVisibility());
+                view.setVisibility(View.GONE);
+            } else {
+                Integer original = titleVisibility.remove(view);
+                if (original != null) view.setVisibility(original);
             }
         }
-        Logx.i(T, "applyTitle: " + (table ? "收起" : "还原") + " 主页顶栏视图 " + changed + " 个");
     }
-
-    /**
-     * 顶栏用高度动画收放，而不是一帧 GONE —— 直接 GONE 会让 fragment_container 瞬间长高、
-     * 整页跳一下，这就是「切换突兀」的主要来源。角度：240ms，ease-out-cubic，和页面动画同一节奏。
-     */
-    private static void collapseAppBar(Activity a) {
-        View appBar = a.findViewById(id(a, "calendar_appBarLayout"));
-        if (appBar == null) return;
-        int h = appBar.getHeight();
-        if (h > 0) savedAppBarHeight = h;
-        if (h <= 0) {
-            appBar.setVisibility(View.GONE);
-            return;
-        }
-        animateHeight(appBar, h, 0, 220, () -> {
-            appBar.setVisibility(View.GONE);
-            resetHeight(appBar);
-        });
-    }
-
-    private static void expandAppBar(Activity a) {
-        View appBar = a.findViewById(id(a, "calendar_appBarLayout"));
-        if (appBar == null) return;
-        if (appBar.getVisibility() == View.VISIBLE && appBar.getHeight() > 0) return;
-        appBar.setVisibility(View.VISIBLE);
-        int target = savedAppBarHeight > 0 ? savedAppBarHeight : ViewGroup.LayoutParams.WRAP_CONTENT;
-        if (target == ViewGroup.LayoutParams.WRAP_CONTENT) {
-            resetHeight(appBar);
-            return;
-        }
-        animateHeight(appBar, 0, target, 220, () -> resetHeight(appBar));
-    }
-
-    private static void animateHeight(View v, int from, int to, long dur, Runnable end) {
-        android.animation.ValueAnimator va = android.animation.ValueAnimator.ofInt(from, to);
-        va.setDuration(dur);
-        va.setInterpolator(new android.view.animation.PathInterpolator(0.22f, 0.61f, 0.36f, 1f));
-        va.addUpdateListener(x -> {
-            ViewGroup.LayoutParams lp = v.getLayoutParams();
-            lp.height = (Integer) x.getAnimatedValue();
-            v.setLayoutParams(lp);
-        });
-        va.addListener(new android.animation.AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(android.animation.Animator animation) {
-                if (end != null) end.run();
-            }
-        });
-        va.start();
-    }
-
-    private static void resetHeight(View v) {
-        ViewGroup.LayoutParams lp = v.getLayoutParams();
-        if (lp != null) {
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            v.setLayoutParams(lp);
-        }
-    }
-
 
     private static int id(Activity a, String name) {
         return a.getResources().getIdentifier(name, "id", a.getPackageName());

@@ -41,19 +41,41 @@ final class HostTablePage {
     static final String TAG_SCRIM = "lspx_table_page_scrim";
 
     private static Page page;
+    private static final java.util.concurrent.ExecutorService LOADER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "lspx-table-load"));
 
     private HostTablePage() {
     }
 
     static boolean showing() {
-        return page != null && page.root != null && page.root.getParent() != null;
+        return page != null && page.visible && page.root != null && page.root.getParent() != null;
     }
 
     static Activity activity() {
         return page == null ? null : page.act;
     }
 
+    /** 课表页根视图（液态玻璃要拿它算「背景图 CENTER_CROP」的映射） */
+    static View rootView() {
+        return page == null ? null : page.root;
+    }
+    static View headerView() { return page == null ? null : page.head; }
+
     // ── 显示 / 隐藏 ─────────────────────────────────────────────────────────
+
+    /** Prepare data without building an invisible pager on the UI thread. */
+    static void prepare(Activity a) {
+        if (a == null || a.isFinishing() || a.isDestroyed()) return;
+        if (page != null && page.act == a) return;
+        if (page != null) detach();
+        page = new Page(a);
+        page.observe();
+        page.reload();
+    }
+
+    static void destroy(Activity a) {
+        if (page != null && page.act == a) detach();
+    }
 
     static void show(Activity a) {
         if (a == null) return;
@@ -62,69 +84,56 @@ final class HostTablePage {
             Logx.w(T, "tablepage: fragment_container 未找到");
             return;
         }
-        if (page != null && page.root.getParent() == host) {
-            page.reload();
-            return;
+        prepare(a);
+        Page p = page;
+        boolean reused = p.root != null;
+        if (p.root == null) p.mount(host);
+        else if (p.root.getParent() != host) {
+            if (p.root.getParent() instanceof ViewGroup) ((ViewGroup)p.root.getParent()).removeView(p.root);
+            host.addView(p.root, new FrameLayout.LayoutParams(-1, -1));
         }
-        if (page != null) detach();
-        Page p = new Page(a);
-        p.mount(host);
-        page = p;
-        p.reload();
-        Logx.i(T, "tablepage: shown in " + host.getClass().getSimpleName()
-                + " children=" + host.getChildCount());
+        p.visible = true;
+        p.root.animate().cancel();
+        p.root.setVisibility(View.VISIBLE);
+        p.root.bringToFront();
+        p.root.setAlpha(1f);
+        if (!ThemeBg.signature(a).equals(p.themeKey)) p.applyTheme();
+        p.refreshForClockAndConfiguration();
+        refreshIfTableChanged(a);
+        if (p.dirty) p.reload();
+        else if (!p.loading && p.needsBind && p.data != null) p.bind(p.data, p.courses);
+        // HWUI may discard hidden foreground nodes. Record them before the next touch.
+        invalidateTree(p.root);
+        Logx.i(T, "tablepage: shown reused=" + reused + " loading=" + p.loading
+                + " page=" + System.identityHashCode(p) + " pager=" + System.identityHashCode(p.pager));
     }
 
     static void hide() {
         final Page p = page;
-        if (p == null) return;
-        page = null;                       // 立刻算「不显示」，后面的逻辑照常走
-        final View root = p.root;
-        if (root.getParent() == null) return;
-        // 退场：顶栏「课程表」慢慢淡掉，中间课表轻微缩到 0.96 的同时淡出，整页最后收干净
-        final android.view.animation.Interpolator ease = easeOut();
-        if (p.head != null) {
-            p.head.animate().alpha(0f).setDuration(200).setInterpolator(ease).start();
-        }
-        if (p.content != null) {
-            p.content.setPivotX(p.content.getWidth() / 2f);
-            p.content.setPivotY(p.content.getHeight() / 2f);
-            p.content.animate()
-                    .alpha(0f)
-                    .scaleX(0.96f)
-                    .scaleY(0.96f)
-                    .setStartDelay(30)
-                    .setDuration(240)
-                    .setInterpolator(ease)
-                    .start();
-        }
-        root.animate()
-                .alpha(0f)
-                .setStartDelay(80)
-                .setDuration(220)
-                .setInterpolator(ease)
-                .withEndAction(() -> {
-                    try {
-                        ViewGroup parent = (ViewGroup) root.getParent();
-                        if (parent != null) parent.removeView(root);
-                    } catch (Throwable ignored) {
-                    }
-                })
-                .start();
-        Logx.i(T, "tablepage: hidden（标题淡出 + 课表轻微缩小）");
+        if (p == null || p.root == null) return;
+        p.rememberWeek();
+        p.visible = false;
+        p.root.animate().cancel();
+        p.root.setVisibility(View.GONE);
+        Logx.i(T, "tablepage: hidden, retaining pager");
     }
 
     private static void detach() {
+        Page old = page;
+        page = null;
+        if (old == null) return;
+        old.visible = false;
+        old.generation++;
+        old.ui.removeCallbacksAndMessages(null);
+        if (old.root != null && old.root.getViewTreeObserver().isAlive())
+            old.root.getViewTreeObserver().removeOnPreDrawListener(old.keepOnTop);
+        try { old.act.getContentResolver().unregisterContentObserver(old.observer); } catch (Exception ignored) { }
         try {
-            ViewGroup parent = (ViewGroup) page.root.getParent();
-            if (parent != null) parent.removeView(page.root);
+            ViewGroup parent = old.root == null ? null : (ViewGroup) old.root.getParent();
+            if (parent != null) parent.removeView(old.root);
         } catch (Throwable ignored) {
         }
-        page = null;
     }
-
-    /** 上次渲染的课表 id：课表管理里切换后 prefs 会变，据此决定要不要重载 */
-    private static long lastCalendarId = -1;
 
     /**
      * 课表管理里切换了「当前课表」→ 回到主页时这里把页面重载成新表。
@@ -133,20 +142,40 @@ final class HostTablePage {
     static void refreshIfTableChanged(Activity a) {
         if (!showing() || a == null) return;
         long now = HostTableData.currentTableId(a);
-        if (now > 0 && now != lastCalendarId) {
-            Logx.i(T, "课表已切换（" + lastCalendarId + " → " + now + "），重载页面");
+        if (now != page.selectedId) {
+            Logx.i(T, "课表已切换（" + page.selectedId + " → " + now + "），重载页面");
+            page.selectedId = now;
             page.viewWeekIndex = -1;   // 换课表 → 回到本周
-            page.reload();
+            page.pager = null;
+            if (page.pagerView != null) page.pagerView.setVisibility(View.INVISIBLE);
+            page.markDirty();
         }
     }
 
-    /** 主题/数据变了以后刷新当前页（没显示就什么也不做） */
+    /** Hidden pages remember invalidation; visible pages coalesce provider notifications. */
     static void refresh() {
-        if (showing()) page.reload();
+        if (page != null) page.markDirty();
     }
 
     static void applyTheme() {
         if (showing()) page.applyTheme();
+    }
+
+    /** 只是重画（切凝光开关 / 换遮罩用），不重建页面、不重读数据 */
+    static void repaint() {
+        if (!showing() || page.root == null) return;
+        // 注意：只 invalidate(root) 不会让宿主 TableView 重录 display list（子 View 的显示列表各自缓存），
+        // 实测「切了经典还是玻璃卡」。必须整棵子树一起作废。
+        page.root.post(() -> invalidateTree(page.root));
+    }
+
+    private static void invalidateTree(View v) {
+        if (v == null) return;
+        v.invalidate();
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) invalidateTree(g.getChildAt(i));
+        }
     }
 
     static void gotoToday() {
@@ -159,6 +188,12 @@ final class HostTablePage {
     static void jumpTo(int week) {
         if (!showing()) return;
         page.gotoWeek(week);
+    }
+
+    static void openWeekIndex(int week) {
+        if (page == null || week < 0) return;
+        if (page.data == null || page.pager == null) page.viewWeekIndex = week;
+        else page.gotoWeek(week + 1);
     }
 
     static void showWeekPicker(View anchor) {
@@ -175,6 +210,17 @@ final class HostTablePage {
     /** 当前课表数据（课程详情面板补时间用） */
     static HostTableData currentData() {
         return page == null ? null : page.data;
+    }
+
+    /**
+     * 用户此刻看的是哪一周（0 起）：选过周次就用那一周，否则跟随「本周」。
+     * 分享课表要把这个值当成宿主的 selected_week 传过去，否则分享图停在别的周。
+     */
+    static int viewingWeekIndex0() {
+        if (!showing() || page == null) return -1;
+        page.rememberWeek();
+        if (page.viewWeekIndex >= 0) return page.viewWeekIndex;
+        return page.data == null ? -1 : page.data.currentWeekIndex0();
     }
 
     static void showMenu(View anchor) {
@@ -205,11 +251,85 @@ final class HostTablePage {
         View pagerView;
         Object pager;
         HostTableData data;
+        List<Object> courses;
         int generation;
+        boolean visible, loading, dirty = true, needsBind;
+        long selectedId;
+        String themeKey;
+        String boundDay;
+        int boundConfiguration, boundCurrentWeek;
+        final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable refreshData = () -> { if ((visible || root == null) && dirty && page == this) reload(); };
+        final android.database.ContentObserver observer = new android.database.ContentObserver(ui) {
+            @Override public void onChange(boolean selfChange) { markDirty(); }
+        };
+        final android.view.ViewTreeObserver.OnPreDrawListener keepOnTop = this::keepOnTop;
+        private boolean keepOnTop() {
+            if (!visible || root == null || page != this) return true;
+            boolean changed = MainTabHook.enforceCourseTitle(act);
+            BarMode.syncAccessories(act);
+            if (root.getParent() instanceof ViewGroup) {
+                ViewGroup parent = (ViewGroup)root.getParent();
+                if (parent.indexOfChild(root) != parent.getChildCount() - 1) {
+                    // Cold starts can commit the native calendar/todo Fragment after
+                    // onResume. Keep it behind our page without changing its lifecycle.
+                    root.bringToFront();
+                    BarMode.enter(act);
+                    changed = true;
+                }
+            }
+            return !changed;
+        }
 
         Page(Activity a) {
             this.act = a;
             this.host = a.getClassLoader();
+            selectedId = HostTableData.currentTableId(a);
+        }
+
+        void observe() {
+            for (String authority : new String[]{"com.android.calendar", "com.coloros.calendar"}) {
+                for (String path : new String[]{"events", "calendars", "reminders"}) {
+                    try { act.getContentResolver().registerContentObserver(
+                            android.net.Uri.parse("content://" + authority + "/" + path), true, observer); }
+                    catch (Exception error) { Logx.w(T, "table observer: " + error); }
+                }
+            }
+        }
+
+        void markDirty() {
+            if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                ui.post(this::markDirty);
+                return;
+            }
+            if (page != this) return;
+            rememberWeek();
+            dirty = true;
+            generation++;
+            ui.removeCallbacks(refreshData);
+            if (visible || root == null) ui.postDelayed(refreshData, visible ? 100 : 300);
+        }
+
+        private String dayKey() {
+            java.util.Calendar day = java.util.Calendar.getInstance();
+            return day.get(java.util.Calendar.YEAR) + ":" + day.get(java.util.Calendar.DAY_OF_YEAR)
+                    + ":" + day.getTimeZone().getID();
+        }
+
+        void refreshForClockAndConfiguration() {
+            if (boundDay == null) return;
+            boolean dayChanged = !boundDay.equals(dayKey());
+            if (dayChanged || boundConfiguration != act.getResources().getConfiguration().hashCode()) {
+                rememberWeek();
+                if (dayChanged && viewWeekIndex == boundCurrentWeek) { viewWeekIndex = -1; pager = null; }
+                markDirty();
+            }
+        }
+
+        void rememberWeek() {
+            if (pager == null) return;
+            Object value = Ref.callName(pager, "getCurrentItem");
+            if (value instanceof Number) viewWeekIndex = ((Number)value).intValue();
         }
 
         void mount(ViewGroup parent) {
@@ -244,7 +364,7 @@ final class HostTablePage {
             empty.setGravity(Gravity.CENTER);
             empty.setTextColor(isNight() ? 0xFF9AA0AB : 0xFF7A808C);
             empty.setText("正在读取课表…");
-            empty.setVisibility(View.GONE);
+            empty.setVisibility(View.VISIBLE);
             empty.setOnClickListener(v -> {
                 if (data == null || data.tableJson == null) {
                     CurriculumIo.showImportMenu(act);
@@ -260,30 +380,7 @@ final class HostTablePage {
             applyTheme();
             parent.addView(root, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            // 入场：顶栏「课程表」先淡淡浮现，中间课表从 0.96 缓慢放大到位（ease-out-cubic，不做回弹）
-            final android.view.animation.Interpolator ease = easeOut();
-            root.setAlpha(0f);
-            root.animate().alpha(1f).setDuration(260).setInterpolator(ease).start();
-            if (head != null) {
-                head.setAlpha(0f);
-                head.animate().alpha(1f).setStartDelay(40).setDuration(300).setInterpolator(ease).start();
-            }
-            if (content != null) {
-                content.setAlpha(0f);
-                content.setScaleX(0.96f);
-                content.setScaleY(0.96f);
-                content.post(() -> {
-                    content.setPivotX(content.getWidth() / 2f);
-                    content.setPivotY(content.getHeight() / 2f);
-                    content.animate()
-                            .alpha(1f)
-                            .scaleX(1f)
-                            .scaleY(1f)
-                            .setDuration(340)
-                            .setInterpolator(ease)
-                            .start();
-                });
-            }
+            root.getViewTreeObserver().addOnPreDrawListener(keepOnTop);
             Logx.i(T, "tablepage mounted");
         }
 
@@ -296,7 +393,8 @@ final class HostTablePage {
 
         void applyTheme() {
             if (root == null) return;
-            // 清掉旧层（背景层挂在 content 里，和 pager 做兄弟，保证在课表之下）
+            themeKey = ThemeBg.signature(act);
+            // 清掉旧层（背景层 + 遮罩层都挂在 root 上，和 pager 做兄弟，保证在课表之下）
             for (String tag : new String[]{TAG_BG, TAG_SCRIM}) {
                 for (ViewGroup g : new ViewGroup[]{root, content}) {
                     if (g == null) continue;
@@ -305,63 +403,75 @@ final class HostTablePage {
                 }
             }
             int type = ThemeStore.type(act);
-            int baseColor = isNight() ? 0xFF101216 : 0xFFF7F8FA;
-            root.setBackgroundColor(baseColor);
+            root.setBackground(new ThemeWindowBackground(root, false));
             // 图片主题：让宿主课表的空格子变磨砂（详见 ThemeBg#imageActive）
             ThemeBg.applyTokens(act);
             if (head != null) head.setTextColor(headerInk(type));
+            CourseSurfaceRenderer.invalidateHeader(root);
 
-            if (type == ThemeStore.TYPE_SOLID) {
-                int idx = Math.max(0, Math.min(ThemeStore.solidIndex(act), ThemeStore.SOLIDS.length - 1));
-                root.setBackgroundColor(ThemeStore.SOLIDS[idx]);
-                return;
+            boolean hasLayer = false;
+            if (type == ThemeStore.TYPE_IMAGE) {
+                View layer = ThemeBg.layer(act);
+                if (layer != null) {
+                    layer.setTag(TAG_BG);
+                    // 挂在页面根上（不是 content）：content 底部有给底栏留的 padding，挂 content 时那块会露出白底，
+                    // 看起来就是「底部一条白边」。挂 root 则整页（含顶部标题、底部留白）都被背景覆盖。
+                    root.addView(layer, 0, new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                    hasLayer = true;
+                }
             }
-            if (type == ThemeStore.TYPE_GRADIENT) {
-                int idx = Math.max(0, Math.min(ThemeStore.gradientIndex(act), ThemeStore.GRADIENTS.length - 1));
-                root.setBackground(new GradientDrawable(
-                        GradientDrawable.Orientation.TOP_BOTTOM, ThemeStore.GRADIENTS[idx]));
-                return;
-            }
-            if (type != ThemeStore.TYPE_IMAGE) return;
 
-            View layer = ThemeBg.layer(act);
-            if (layer == null) return;
-            layer.setTag(TAG_BG);
-            // 挂在页面根上（不是 content）：content 底部有给底栏留的 padding，挂 content 时那块会露出白底，
-            // 看起来就是「底部一条白边」。挂 root 则整页（含顶部标题、底部留白）都被背景覆盖。
-            root.addView(layer, 0, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
+            // 背景遮罩：**所有主题**都铺一层（以前只在图片主题里加，纯色/渐变点了没反应），
+            // 位置在背景之上、顶栏和课表之下 —— 空格子已经是半透明（NingGuang#emptyCellTint），
+            // 所以这一层真的能看见浓度变化。
             int scrim = ThemeStore.scrim(act);
-            if (scrim > 0) {
+            if (scrim > 0 && type != ThemeStore.TYPE_NONE) {
                 View s = new View(act);
                 s.setTag(TAG_SCRIM);
                 s.setBackgroundColor(Color.argb(scrim, isNight() ? 0 : 255,
                         isNight() ? 0 : 255, isNight() ? 0 : 255));
-                root.addView(s, 1, new FrameLayout.LayoutParams(
+                root.addView(s, hasLayer ? 1 : 0, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             }
-            Logx.i(T, "tablepage theme image applied, scrim=" + scrim);
+            Logx.i(T, "tablepage theme applied type=" + type + " scrim=" + scrim
+                    + " 凝光=" + ThemeStore.ningguang(act) + " (" + NingGuang.describe(act) + ")");
         }
 
         // ── 数据 ───────────────────────────────────────────────────────────
 
         void reload() {
+            if (loading) return;
+            ui.removeCallbacks(refreshData);
+            loading = true;
+            dirty = false;
             final int gen = ++generation;
-            empty.setText("正在读取课表…");
-            new Thread(() -> {
+            if (empty != null) empty.setText("正在读取课表…");
+            LOADER.execute(() -> {
+                ThemeBg.warm(act);
                 HostTableData d = HostTableData.load(act);
-                List<Object> courses = d.buildCourseList(host);
+                List<Object> result = d.buildCourseList(host);
                 act.runOnUiThread(() -> {
-                    if (gen != generation || !showing() || page != this) return;
+                    loading = false;
+                    if (page != this || act.isDestroyed()) return;
+                    if (gen != generation) {
+                        ui.removeCallbacks(refreshData);
+                        if (visible || root == null) ui.postDelayed(refreshData, visible ? 100 : 300);
+                        return;
+                    }
                     data = d;
-                    lastCalendarId = d.calendarId;
-                    bind(d, courses);
+                    courses = result;
+                    needsBind = true;
+                    if (visible) bind(d, courses);
                 });
-            }, "lspx-table-load").start();
+            });
         }
 
         private void bind(HostTableData d, List<Object> courses) {
+            needsBind = false;
+            boundDay = dayKey();
+            boundConfiguration = act.getResources().getConfiguration().hashCode();
+            boundCurrentWeek = d.currentWeekIndex0();
             // 换数据：先把旧 pager 摘掉
             if (pagerView != null) {
                 content.removeView(pagerView);
@@ -397,20 +507,15 @@ final class HostTablePage {
             boolean attach() {
                 Class<?> vp2 = Ref.cls(host, "androidx.viewpager2.widget.ViewPager2");
                 Class<?> adapterBase = Ref.cls(host, "androidx.recyclerview.widget.RecyclerView$Adapter");
-                Class<?> adapterCls = weekAdapterClass();
-                if (vp2 == null || adapterBase == null || adapterCls == null) {
+                if (vp2 == null || adapterBase == null) {
                     Logx.w(T, "tablepage: vp2=" + (vp2 != null) + " base=" + (adapterBase != null)
-                            + " adapter=" + (adapterCls != null));
+                            + "，无法创建周课表");
                     return false;
                 }
                 try {
                     View pv = (View) vp2.getConstructor(Context.class).newInstance(act);
                     pv.setBackground(null);
-                    Constructor<?> k = Ref.ctorByArity(adapterCls, 6);
-                    if (k == null) {
-                        Logx.w(T, "tablepage: 适配器没有 6 参构造器 " + adapterCls.getName());
-                        return false;
-                    }
+                    Constructor<?> k = HostCompat.weekAdapter(host);
                     Object ad = k.newInstance(act, d.tableJson, courses,
                             Math.max(1, d.weekCount), false, d.currentWeekIndex0());
                     Logx.i(T, "tablepage: 适配器已建 " + ad.getClass().getName());
@@ -425,13 +530,13 @@ final class HostTablePage {
                     final int idx = viewWeekIndex >= 0
                             ? Math.max(0, Math.min(viewWeekIndex, Math.max(0, d.weekCount - 1)))
                             : d.currentWeekIndex0();
-                    Ref.callByTypes(pv, new Class<?>[]{int.class, boolean.class}, idx, false);
+                    HostCompat.pagerCurrentItem(vp2).invoke(pv, idx, false);
                     pv.setAlpha(0f);
 
                     content.addView(pv, new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                     pv.post(() -> {
-                        Ref.callByTypes(pv, new Class<?>[]{int.class, boolean.class}, idx, false);
+                        pagerTo(pv, idx, false);
                         pv.animate().alpha(1f).setDuration(120).start();
                     });
                     Logx.i(T, "tablepage: 首屏定位 weekIndex=" + idx);
@@ -440,7 +545,7 @@ final class HostTablePage {
                     adapter = ad;
                     Logx.i(T, "tablepage: 宿主课表已挂载 weeks=" + d.weekCount
                             + " courses=" + courses.size() + " weekIndex=" + d.currentWeekIndex0()
-                            + " adapter=" + adapterCls.getName());
+                            + " adapter=" + k.getDeclaringClass().getName());
                     return true;
                 } catch (Throwable t) {
                     Logx.e(T, "tablepage: 挂载宿主课表失败", t);
@@ -448,22 +553,6 @@ final class HostTablePage {
                 }
             }
 
-            /**
-             * 周视图适配器类名被 R8 混淆（源码里是 b），但它是 SchoolTimeTableActivity 的字段类型，
-             * 且只有它带 6 参构造器（日视图那个是 4 参），所以从字段签名反查，不猜名字。
-             */
-            private Class<?> weekAdapterClass() {
-                Class<?> actCls = Ref.cls(host,
-                        "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity");
-                Class<?> base = Ref.cls(host, "androidx.recyclerview.widget.RecyclerView$Adapter");
-                if (actCls == null || base == null) return null;
-                for (Field f : actCls.getDeclaredFields()) {
-                    Class<?> t = f.getType();
-                    if (t == base || !base.isAssignableFrom(t)) continue;
-                    if (Ref.ctorByArity(t, 6) != null) return t;
-                }
-                return null;
-            }
         }
 
         private Object adapter;
@@ -492,6 +581,7 @@ final class HostTablePage {
 
         void gotoWeek(int week) {
             if (data == null) return;
+            rememberWeek();
             int idx = Math.max(0, Math.min(week - 1, Math.max(0, data.weekCount - 1)));
             boolean same = idx == (viewWeekIndex >= 0 ? viewWeekIndex : data.currentWeekIndex0());
             if (same) {
@@ -501,6 +591,7 @@ final class HostTablePage {
                 return;
             }
             viewWeekIndex = idx;
+            pager = null; // Provider notifications must not replace the requested week with the old pager's position.
             Logx.i(T, "tablepage: jump week " + week + " (index " + idx + ") → 按目标周重建");
             reload();
         }
@@ -508,26 +599,12 @@ final class HostTablePage {
         /**
          * 跳到某一页。**不能按名字调**：宿主把 ViewPager2#setCurrentItem 混淆成了 m，
          * 之前「回到本周 / 选择周次」点了没反应就是卡在这（两个版本都一样）。
-         * 名字还在就优先用名字，否则按形参类型 (int, boolean) 找 —— 和首屏定位用的是同一条路。
+         * 使用已核对的公开入口 setCurrentItem/m，避免误选同签名的内部 n 方法。
          */
         private static boolean pagerTo(Object pv, int idx, boolean smooth) {
             try {
-                Method m = Ref.methodByArity(pv.getClass(), "setCurrentItem", 2);
-                if (m != null) {
-                    m.invoke(pv, idx, smooth);
-                    return true;
-                }
-                m = Ref.methodByTypes(pv.getClass(), int.class, boolean.class);
-                if (m != null) {
-                    m.invoke(pv, idx, smooth);
-                    Logx.i(T, "tablepage: setCurrentItem 按类型找到 " + m.getName() + "(int,boolean)");
-                    return true;
-                }
-                m = Ref.methodByArity(pv.getClass(), "setCurrentItem", 1);
-                if (m != null) {
-                    m.invoke(pv, idx);
-                    return true;
-                }
+                HostCompat.pagerCurrentItem(pv.getClass()).invoke(pv, idx, smooth);
+                return true;
             } catch (Throwable t) {
                 Logx.w(T, "tablepage: setCurrentItem 调用失败 " + t);
             }
@@ -713,16 +790,22 @@ final class HostTablePage {
             }
             switch (id) {
                 case 1:
-                    openHostActivity("com.android.calendar.card.schooltimetable.CreateCourseTableActivity");
+                    // 原生那个「创建课表」面板：拍照导入 / 相册导入 / 手动创建
+                    // （ImportCourseTableHelper.F + dialog_create_course）；取不到才退回手动创建页
+                    if (!HostCreateSheet.show(act)) {
+                        Logx.w(T, "创建课表：宿主原生面板不可用，退回 CreateCourseTableActivity");
+                        openHostActivity("com.android.calendar.card.schooltimetable.CreateCourseTableActivity");
+                    }
                     break;
                 case 2:
                     openHostActivity("com.android.calendar.card.schooltimetable.CourseTableManageActivity");
                     break;
                 case 3:
-                    openHostActivity("com.android.calendar.card.schooltimetable.SchoolShareTableActivity");
+                    // 分享课表：必须带宿主那五个 extras，否则分享页标题是 null、周次是第 0 周、表格空白
+                    HostShareTable.start(act);
                     break;
                 case 4:
-                    openHostActivity("com.android.calendar.card.schooltimetable.CourseReminderActivity");
+                    HostEntities.openReminder(act);
                     break;
                 case 5:
                     addDesktopShortcut();
@@ -762,21 +845,25 @@ final class HostTablePage {
         /** 创建桌面快捷方式：照抄宿主的参数（ShortcutUtils.addShortcut） */
         private void addDesktopShortcut() {
             try {
-                Class<?> su = Ref.clsStrict(host, "com.android.calendar.card.schooltimetable.utils.ShortcutUtils");
-                Class<?> tableCls = Ref.clsStrict(host,
-                        "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity");
-                int nameId = act.getResources().getIdentifier("course_table", "string", act.getPackageName());
-                int iconId = act.getResources().getIdentifier("ic_course_action", "drawable", act.getPackageName());
-                java.lang.reflect.Method m = Ref.methodOf(su, "addShortcut",
-                        Context.class, Class.class, String.class, int.class, int.class, String.class);
-                if (m == null) {
-                    Logx.w(T, "ShortcutUtils#addShortcut 没找到");
+                android.content.pm.ShortcutManager shortcuts = act.getSystemService(android.content.pm.ShortcutManager.class);
+                String shortcutId = "school_time_table_activity_action";
+                if (shortcuts == null || !shortcuts.isRequestPinShortcutSupported()) {
+                    CurriculumIo.toast(act, "当前桌面不支持添加快捷方式");
                     return;
                 }
-                Ref.call(null, m, act.getApplicationContext(), tableCls,
-                        "oplus.calendar.action.SHORTCUT_KEY_COURSE_TABLE", nameId, iconId,
-                        "school_time_table_activity_action");
-                CurriculumIo.toast(act, "已添加「课程表」桌面快捷方式");
+                for (android.content.pm.ShortcutInfo shortcut : shortcuts.getPinnedShortcuts()) {
+                    if (shortcutId.equals(shortcut.getId())) {
+                        CurriculumIo.toast(act, "桌面已有「课程表」快捷方式");
+                        return;
+                    }
+                }
+                int iconId = act.getResources().getIdentifier("ic_course_action", "drawable", act.getPackageName());
+                Intent launch = TableEntryRoute.mainIntent(act, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                android.content.pm.ShortcutInfo info = new android.content.pm.ShortcutInfo.Builder(act, shortcutId)
+                        .setShortLabel("课程表").setLongLabel("课程表")
+                        .setIcon(android.graphics.drawable.Icon.createWithResource(act, iconId)).setIntent(launch).build();
+                boolean requested = shortcuts.requestPinShortcut(info, null);
+                CurriculumIo.toast(act, requested ? "已提交添加请求，请在桌面提示中确认" : "桌面未接受添加请求");
                 Logx.i(T, "tablepage: addShortcut done");
             } catch (Throwable t) {
                 Logx.e(T, "addShortcut 失败", t);

@@ -21,7 +21,6 @@ final class CourseInfoSheet {
     private static final String T = CourseAlarmEntry.TAG;
 
     private static final String CLS_INFO = "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment";
-    private static final String CLS_FN1 = "kotlin.jvm.functions.Function1";
     private static final String CLS_GSON = "com.google.gson.Gson";
     private static final String CLS_TABLE_ENTITY =
             "com.android.calendar.card.schooltimetable.entity.CourseTableEntity";
@@ -49,39 +48,20 @@ final class CourseInfoSheet {
 
             fillTimes(host, courses);
 
-            Class<?> fn1 = Ref.cls(host, CLS_FN1);
-            Object sheet = null;
-            if (fn1 != null) {
-                Object unit = null;
-                Class<?> unitCls = Ref.cls(host, "kotlin.Unit");
-                if (unitCls != null) unit = Ref.field(unitCls, "INSTANCE");
-                final Object unitRet = unit;
-                // 「编辑」→ 宿主的新建/编辑课程页（带上这门课）；「添加」→ 复制这格的星期/节次再新建
-                final Object[] sheetRef = new Object[1];
-                Object onEdit = java.lang.reflect.Proxy.newProxyInstance(host, new Class<?>[]{fn1},
-                        (p, m, args) -> {
-                            Object entity = args != null && args.length > 0 ? args[0] : null;
-                            Logx.i(T, "CourseInfoSheet: 点编辑");
-                            dismiss(sheetRef[0]);
-                            CourseEdit.edit(a, host, entity);
-                            return unitRet;
-                        });
-                Object onAdd = java.lang.reflect.Proxy.newProxyInstance(host, new Class<?>[]{fn1},
-                        (p, m, args) -> {
-                            Object entity = args != null && args.length > 0 ? args[0] : null;
-                            Logx.i(T, "CourseInfoSheet: 点添加");
-                            dismiss(sheetRef[0]);
-                            CourseEdit.add(a, host, entity);
-                            return unitRet;
-                        });
-                Ref.callName(fragment, "setMOnEditItemClickListener", onEdit);
-                Ref.callName(fragment, "setMAddCourseBtnClickListener", onAdd);
-
-                sheetRef[0] = HostWeekSheet.showPanel(a, host, fragment, TAG_SHEET);
-                sheet = sheetRef[0];
-            } else {
-                sheet = HostWeekSheet.showPanel(a, host, fragment, TAG_SHEET);
-            }
+            final Object[] sheetRef = new Object[1];
+            Object onEdit = HostCompat.unitCallback(host, entity -> {
+                Logx.i(T, "CourseInfoSheet: 点编辑");
+                dismiss(sheetRef[0]);
+                CourseEdit.edit(a, host, entity);
+            });
+            Object onAdd = HostCompat.unitCallback(host, entity -> {
+                Logx.i(T, "CourseInfoSheet: 点添加");
+                dismiss(sheetRef[0]);
+                CourseEdit.add(a, host, entity);
+            });
+            Ref.callName(fragment, "setMOnEditItemClickListener", onEdit);
+            Ref.callName(fragment, "setMAddCourseBtnClickListener", onAdd);
+            Object sheet = sheetRef[0] = HostWeekSheet.showPanel(a, host, fragment, TAG_SHEET);
 
             Logx.i(T, "CourseInfoSheet: 课程详情面板 " + (sheet != null ? "已弹出" : "弹不出来"));
             return sheet != null;
@@ -108,7 +88,7 @@ final class CourseInfoSheet {
             Class<?> entityCls = Ref.cls(host, CLS_ENTITY);
             Class<?> utilCls = Ref.cls(host, CLS_UTIL);
             if (gsonCls == null || tableCls == null || entityCls == null || utilCls == null) return;
-            Method fromJson = Ref.methodByTypes(gsonCls, String.class, Class.class);
+            Method fromJson = Ref.methodOf(gsonCls, "fromJson", String.class, Class.class);
             Method getTime = Ref.methodOf(utilCls, "getTimeByCourseNode", tableCls, entityCls, boolean.class);
             if (fromJson == null || getTime == null) {
                 Logx.w(T, "CourseInfoSheet: 取不到 Gson#fromJson / getTimeByCourseNode，跳过时间填充");

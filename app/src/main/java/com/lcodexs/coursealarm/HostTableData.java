@@ -35,6 +35,8 @@ final class HostTableData {
     String tableJson;
     /** 一条课程一个 JSON 原文 */
     final List<String> courseJsons = new ArrayList<>();
+    final List<Object> events = new ArrayList<>();
+    private Context context;
     /** 课程表名（显示用） */
     String tableName = "";
     long calendarId = -1L;
@@ -65,6 +67,7 @@ final class HostTableData {
     /** 会走 provider 查询，调用方必须在后台线程 */
     static HostTableData load(Context ctx) {
         HostTableData d = new HostTableData();
+        d.context = ctx.getApplicationContext();
         ContentResolver cr = ctx.getContentResolver();
         try {
             d.readCalendars(ctx, cr);
@@ -76,62 +79,21 @@ final class HostTableData {
         return d;
     }
 
-    private void readCalendars(Context ctx, ContentResolver cr) throws Exception {
-        long prefer = hostCurrentTableId(ctx);
-        long best = -1L;
-        String bestJson = null;
-        String bestName = "";
-        boolean bestCourse = false;
-        Cursor c = null;
-        try {
-            c = cr.query(CalendarContract.Calendars.CONTENT_URI,
-                    new String[]{CalendarContract.Calendars._ID,
-                            CalendarContract.Calendars.ACCOUNT_NAME,
-                            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
-                            COL_CAL_JSON},
-                    null, null, null);
-            if (c == null) return;
-            while (c.moveToNext()) {
-                long id = c.getLong(0);
-                String acc = c.getString(1);
-                String name = c.getString(2);
-                String json = c.getString(3);
-                if (json == null || json.isEmpty()) continue;
-                boolean isCourse = (acc != null && (acc.contains("course") || acc.contains("kebiao")))
-                        || (name != null && name.contains("课程表"));
-                // 优先级：宿主 prefs 记的当前课表 > 课程日历里带 json 的那个 > 任意带 json 的
-                int rank = id == prefer ? 3 : (isCourse ? 2 : 1);
-                boolean better = bestJson == null
-                        || rank > (best == prefer ? 3 : (bestCourse ? 2 : 1));
-                if (better) {
-                    best = id;
-                    bestJson = json;
-                    bestName = name == null ? "" : name;
-                    bestCourse = isCourse;
-                }
-            }
-        } finally {
-            if (c != null) try { c.close(); } catch (Throwable ignored) { }
-        }
-        if (bestJson == null) {
-            Logx.w(T, "HostTableData: 没有找到带 calendars_json_extensions 的课程日历");
-            return;
-        }
-        calendarId = best;
-        tableJson = bestJson;
-        tableName = bestName;
-        JSONObject o = new JSONObject(bestJson);
-        weekCount = Math.max(1, o.optInt("weekNumberOfThisTerm", 1));
-        termBeginMs = o.optLong("termBeginTime", 0L);
-        Logx.i(T, "HostTableData calendar id=" + best + " name=" + bestName
-                + " weeks=" + weekCount + " termBegin=" + CourseRepo.fmt(termBeginMs));
+    private void readCalendars(Context ctx, ContentResolver cr) {
+        TableCtx current = TableCtx.load(ctx);
+        calendarId = current.calendarId;
+        tableJson = current.tableJson;
+        tableName = current.tableName;
+        weekCount = current.weekCount;
+        termBeginMs = current.termBeginMs;
     }
 
     private void readCourses(ContentResolver cr) {
+        if (calendarId <= 0) return;
         Cursor c = null;
         try {
             c = cr.query(EVENTS_URI, new String[]{
-                    "calendar_id", COL_EVENT_JSON, "hasExtendedProperties"},
+                    "calendar_id", COL_EVENT_JSON, "hasExtendedProperties", "_id", "deleted"},
                     null, null, null);
             if (c == null) return;
             int total = 0;
@@ -142,8 +104,9 @@ final class HostTableData {
                 int ext = c.getInt(2);
                 if (json == null || json.isEmpty()) continue;
                 // 只收本课表的（calendarId 未知时按课程扩展属性兜底）
-                if (calendarId > 0 && cal != calendarId) continue;
-                if (calendarId <= 0 && ext != CourseWriter.COURSE_EXT_PROP) continue;
+                if (cal != calendarId || ext != CourseWriter.COURSE_EXT_PROP || c.getInt(4) != 0) continue;
+                Object original = HostEntities.event(context, c.getLong(3));
+                events.add(original);
                 courseJsons.add(json);
             }
             Logx.i(T, "HostTableData events total=" + total + " kept=" + courseJsons.size());
@@ -161,16 +124,7 @@ final class HostTableData {
 
     /** 宿主 prefs 里记的「当前课表」id（与 TableCtx 同一来源） */
     private static long hostCurrentTableId(Context ctx) {
-        if (ctx == null) return -1;
-        for (String n : new String[]{"com.coloros.calendar_preferences", "com.coloros.calendar_preference"}) {
-            try {
-                long v = ctx.getSharedPreferences(n, Context.MODE_PRIVATE)
-                        .getLong("sp_key_current_course_table", -1);
-                if (v > 0) return v;
-            } catch (Throwable ignored) {
-            }
-        }
-        return -1;
+        return TableCtx.hostCurrentTableId(ctx);
     }
 
     // ── 造宿主的 CourseEntity 列表 ──────────────────────────────────────────
@@ -206,7 +160,8 @@ final class HostTableData {
         java.lang.reflect.Method setDeleted = Ref.methodByArity(eventCls, "setDeleted", 1);
         java.lang.reflect.Constructor<?> eventCtor = Ref.ctorByArity(eventCls, 0);
 
-        for (String json : courseJsons) {
+        for (int index = 0; index < courseJsons.size(); index++) {
+            String json = courseJsons.get(index);
             Object course = null;
             try {
                 course = fromJson.invoke(gson, json, courseCls);
@@ -215,15 +170,12 @@ final class HostTableData {
             }
             if (course == null) continue;
             try {
-                Object name = getCourseName == null ? null : getCourseName.invoke(course);
-                Object ev = eventCtor == null ? null : eventCtor.newInstance();
-                if (ev != null) {
-                    if (setTitle != null) setTitle.invoke(ev, name == null ? "" : String.valueOf(name));
-                    if (setDeleted != null) setDeleted.invoke(ev, 0);
-                    if (setEvent != null) setEvent.invoke(course, ev);
-                }
+                Object ev = events.get(index);
+                if (ev == null || setEvent == null) continue;
+                setEvent.invoke(course, ev);
             } catch (Throwable t) {
-                Logx.w(T, "course event 补建失败: " + t);
+                Logx.w(T, "原始课程事件读取失败: " + t);
+                continue;
             }
             out.add(course);
         }

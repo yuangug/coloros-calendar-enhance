@@ -42,8 +42,8 @@ final class TableViewBridge {
 
     /** 强引用住回调代理（TableView 里只有 WeakReference） */
     private static volatile Object callback;
+    private static WeakReference<Activity> callbackActivity = new WeakReference<>(null);
     private static volatile Class<?> callbackCls;
-    private static volatile Object unit;
 
     private TableViewBridge() {
     }
@@ -77,7 +77,8 @@ final class TableViewBridge {
     private static void attach(View table, ClassLoader host) {
         try {
             Activity act = activity(table.getContext());
-            if (act == null) return;
+            // The native timetable already owns its full callback (drag/copy/delete).
+            if (act == null || !act.getClass().getName().equals("com.android.calendar.AllInOneActivity")) return;
             Object cb = ensureCallback(act, host);
             if (cb == null) return;
             // WeakReference 里的强引用由 callback 字段保住
@@ -90,14 +91,17 @@ final class TableViewBridge {
     }
 
     private static synchronized Object ensureCallback(final Activity act, final ClassLoader host) {
+        callbackActivity = new WeakReference<>(act);
         if (callback != null) return callback;
         Class<?> cbCls = callbackCls;
         if (cbCls == null) return null;
-        Class<?> unitCls = Ref.cls(host, "kotlin.Unit");
-        unit = unitCls == null ? null : Ref.field(unitCls, "INSTANCE");
         try {
             callback = Proxy.newProxyInstance(host, new Class<?>[]{cbCls},
-                    (p, m, args) -> dispatch(act, host, m.getName(), args));
+                    (p, m, args) -> {
+                        if (m.getDeclaringClass() == Object.class) return HostCompat.objectMethod(p, m, args);
+                        Activity current = callbackActivity.get();
+                        return current == null ? null : dispatch(current, host, m.getName(), args);
+                    });
             Logx.i(T, "tableview: 回调代理已建");
             return callback;
         } catch (Throwable t) {
@@ -115,18 +119,25 @@ final class TableViewBridge {
                     Logx.i(T, "tableview: 点了课程（" + courses.size() + " 门同格）→ 宿主详情面板");
                     CourseInfoSheet.show(act, host, courses, viewType);
                 }
-                return unit;
+                return null;
             case "showWeekSelectDialog":
                 Logx.i(T, "tableview: 左上角周次 → 宿主周次面板");
                 HostTablePage.showWeekSheet();
-                return unit;
+                return null;
+            case "onDeleteCourse":
+                if (args != null && args.length > 0) {
+                    Object event = Ref.callName(args[0], "getEvent");
+                    Object id = Ref.callName(event, "getId");
+                    if (id instanceof Number) CourseMutations.deleteCourse(act, ((Number)id).longValue(), false);
+                }
+                return null;
             case "refreshCourseData":
                 HostTablePage.refresh();
-                return unit;
+                return null;
             case "getCopyCourse":
                 return null;
             default:
-                return name.startsWith("get") ? null : unit;
+                return null;
         }
     }
 

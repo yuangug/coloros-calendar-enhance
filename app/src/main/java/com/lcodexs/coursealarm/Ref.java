@@ -78,7 +78,7 @@ final class Ref {
     }
 
     static Object call(Object target, Method m, Object... args) {
-        if (target == null || m == null) return null;
+        if (m == null || (target == null && !java.lang.reflect.Modifier.isStatic(m.getModifiers()))) return null;
         try {
             return m.invoke(target, args);
         } catch (Throwable t) {

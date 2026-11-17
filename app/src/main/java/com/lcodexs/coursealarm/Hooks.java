@@ -29,14 +29,22 @@ final class Hooks {
 
     // ── 日历进程 ──────────────────────────────────────────────────────────────
     private static void installCalendar(XposedModule module, ClassLoader host, Context app) {
+        appCtx = app;
+        MutationHooks.install(module, host, app);
         hookReminderPreferences(module, host);
         hookNightTick(module, host, app);
         hookCourseTableMenu(module, host);
         hookActivityResult(module, host);
         hookTableTokens(module, host);
+        hookEmptyCellTint(module, host);
+        CourseSurfaceRenderer.install(module, host);
         hookBlockLegacyTablePage(module, host);
         hookManageActivity(module, host);
         MainTabHook.install(module, host);
+        // Device verification code is excluded from normal APKs.
+        try { Class.forName("com.lcodexs.coursealarm.DeviceVerification").getMethod("schedule", Context.class).invoke(null, app); }
+        catch (ClassNotFoundException ignored) { }
+        catch (Exception e) { Logx.e(T, "device verification setup", e); }
 
         // 让「每晚 21:00」这个定时器始终存在（App 每次起进程都补一次，幂等）
         try {
@@ -239,64 +247,349 @@ final class Hooks {
     }
 
     /**
-     * 「课表管理」里点某张课表时，宿主会 changeDefaultCalendar + startActivity(SchoolTimeTableActivity,
-     * launch_type=2) —— 也就是弹回老的独立课表页，而主页里的课表还停在旧表。
+     * 课表的「凝光」绘制（见 {@link NingGuang}）。宿主 TableView 是一整块 Canvas 自绘，
+     * 课程卡片没有对应的 View，只能在它的绘制时序里插针：
      *
-     * 现在课表是主页的一个页面：这种情况下直接把老页面 finish 掉，改成重载主页里的课表页
-     *（HostTablePage.refresh 会重新读 sp_key_current_course_table，自然切到新表）。
-     * 只拦 launch_type=2（课表管理那条路），其它入口（桌面快捷方式等）照旧。
+     *   drawCourse$drawCourseItem：白底圆角 → 课程色圆角 →（这里）→ 课程文字
+     *   drawEmptyCourse：一行 7 个空格子逐格画 →（这里）→ 下一行
+     *
+     * 所以卡片挂在 {@code drawCourseText} **之前**（光在文字下面），空格子挂在
+     * {@code drawEmptyCourse} **之后**（轮廓光盖在格子上）。
+     *
+     * 两个方法都不是小函数（130+ 行），JIT 不会内联，hook 能稳定命中 —— 实测见 logs\deploy-*.log 的 hit 行。
      */
-    private static void hookBlockLegacyTablePage(XposedModule module, ClassLoader host) {
-        Class<?> c = resolve(host, "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity");
-        if (c == null) return;
-        Method m = null;
-        for (Method cand : c.getDeclaredMethods()) {
-            if (cand.getName().equals("onCreate") && cand.getParameterCount() == 1) {
-                m = cand;
+    private static void hookTablePaint(XposedModule module, ClassLoader host) {
+        final String cls = "com.android.calendar.card.schooltimetable.view.TableView";
+        Class<?> tv = resolve(host, cls);
+        if (tv == null) return;
+
+        // 1) 课程卡片：drawCourseText(Canvas, String, CourseEntity)
+        Method drawText = null;
+        for (Method cand : tv.getDeclaredMethods()) {
+            if (!"drawCourseText".equals(cand.getName())) continue;
+            Class<?>[] pt = cand.getParameterTypes();
+            if (pt.length == 3 && pt[0] == android.graphics.Canvas.class
+                    && pt[1] == String.class) {
+                drawText = cand;
                 break;
             }
         }
-        if (m == null) {
-            Logx.w(T, "SchoolTimeTableActivity#onCreate not found");
-            return;
-        }
-        m.setAccessible(true);
-        module.hook(m)
-                .setId("table_page_from_manage")
-                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-                .intercept(chain -> {
-                    Object self = chain.getThisObject();
-                    Object arg = chain.getArg(0);
-                    if (!(self instanceof android.app.Activity)) return chain.proceed();
-                    android.app.Activity act = (android.app.Activity) self;
-                    String launchType = null;
-                    try {
-                        android.content.Intent it = act.getIntent();
-                        launchType = it == null ? null : it.getStringExtra("launch_type");
-                    } catch (Throwable ignored) {
-                    }
-                    if ("2".equals(launchType) && HostTablePage.showing()) {
-                        Logx.i(T, "课表管理切换课表：老课表页起来后立刻收掉，改为重载主页课表");
-                        MainTabHook.keepTableMode();
-                        // 必须走完 super.onCreate()，否则框架抛 SuperNotCalledException 直接把进程干掉
-                        Object r = chain.proceed();
-                        HostTablePage.refresh();
-                        act.finish();
-                        act.overridePendingTransition(0, 0);
-                        // 课表管理页一起收掉：切换完直接回主页的课表页，而不是停在管理列表
+        if (drawText != null) {
+            drawText.setAccessible(true);
+            module.hook(drawText)
+                    .setId("ng_course_card")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
                         try {
-                            android.app.Activity mng = manageRef == null ? null : manageRef.get();
-                            if (mng != null && !mng.isFinishing()) {
-                                mng.finish();
-                                Logx.i(T, "课表管理页已收起");
+                            Object self = chain.getThisObject();
+                            Object cv = chain.getArg(0);
+                            Object course = chain.getArg(2);
+                            if (self instanceof android.view.View && cv instanceof android.graphics.Canvas
+                                    && course != null) {
+                                android.view.View v = (android.view.View) self;
+                                NingGuang.card((android.graphics.Canvas) cv, v.getContext(),
+                                        f(Ref.callName(course, "getMLeft")),
+                                        f(Ref.callName(course, "getMTop")),
+                                        f(Ref.callName(course, "getMRight")),
+                                        f(Ref.callName(course, "getMBottom")),
+                                        f(Ref.field(self, "courseRadius")));
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable t) {
+                            Logx.w(T, "凝光卡片绘制失败: " + t);
+                        }
+                        return chain.proceed();
+                    });
+            Logx.i(T, "hooked TableView#drawCourseText (凝光课程卡)");
+        } else {
+            Logx.w(T, "TableView#drawCourseText not found（凝光卡片不可用）");
+        }
+
+        // 2) 空格子：drawEmptyCourse(Canvas) —— 一行 7 格，画完再描轮廓光
+        Method empty = null;
+        for (Method cand : tv.getDeclaredMethods()) {
+            if (!"drawEmptyCourse".equals(cand.getName())) continue;
+            Class<?>[] pt = cand.getParameterTypes();
+            if (pt.length == 1 && pt[0] == android.graphics.Canvas.class) {
+                empty = cand;
+                break;
+            }
+        }
+        if (empty != null) {
+            empty.setAccessible(true);
+            module.hook(empty)
+                    .setId("ng_empty_cell")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object self = chain.getThisObject();
+                        Object cv = chain.getArg(0);
+                        float left = f(Ref.field(self, "cellStartLeft"));
+                        float top = f(Ref.field(self, "cellStartTop"));
+                        Object r = chain.proceed();
+                        try {
+                            if (self instanceof android.view.View && cv instanceof android.graphics.Canvas) {
+                                NingGuang.emptyRow((android.graphics.Canvas) cv,
+                                        ((android.view.View) self).getContext(), self, left, top);
+                            }
+                        } catch (Throwable t) {
+                            Logx.w(T, "凝光空格子绘制失败: " + t);
                         }
                         return r;
+                    });
+            Logx.i(T, "hooked TableView#drawEmptyCourse (凝光空格子)");
+        } else {
+            Logx.w(T, "TableView#drawEmptyCourse not found（凝光空格子不可用）");
+        }
+
+        hookEmptyCellTint(module, host);
+    }
+
+    /**
+     * 空格子底色半透明：宿主 {@code drawEmptyCourse} 里取 {@code R.color.empty_course_bg} 走
+     * {@code z0.b(int resId, Resources.Theme)}（Kotlin 的默认参数合成方法调它）。
+     * 有主题背景时把这一格换成半透明白，背景图/纯色底才透得出来 —— 否则整块网格实心，
+     * 「设了背景看不见」「遮罩怎么调都没反应」都是它。
+     */
+    private static void hookEmptyCellTint(XposedModule module, ClassLoader host) {
+        // 取色工具类每个版本换个混淆名：17.3.70 = utils.z0，16.24.2 = utils.v0。
+        // 不写死一个，按「类名候选 + 方法签名 (int, Resources$Theme) -> int」找。
+        Class<?> util = null;
+        Method target = null;
+        for (String name : new String[]{
+                "com.coloros.calendar.utils.z0",
+                "com.coloros.calendar.utils.v0"}) {
+            Class<?> k = resolve(host, name);
+            if (k == null) continue;
+            Method m = colorMethodOf(k);
+            if (m != null) {
+                util = k;
+                target = m;
+                break;
+            }
+        }
+        if (target == null) {
+            Logx.w(T, "取色工具类没找到（z0/v0 都没有 (int,Theme)->int），空格子保持实心");
+            return;
+        }
+        target.setAccessible(true);
+        final String utilName = util.getName();
+        final String name = target.getName();
+        module.hook(target)
+                .setId("empty_cell_tint")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(chain -> {
+                    Object r = chain.proceed();
+                    try {
+                        Object idObj = chain.getArg(0);
+                        if (!(idObj instanceof Integer) || !(r instanceof Integer)) return r;
+                        int id = (Integer) idObj;
+                        // 课程卡的底色/字色：取色这一步换成凝光玻璃
+                        if (NingGuang.inTable && appCtx != null && NingGuang.glass(appCtx)) {
+                            if (NingGuang.isCardFill(id)) {
+                                // 记住宿主这一格的原始课程色：卡片底下 1/3 的白透明渐变要用它
+                                NingGuang.lastCourseColor = (Integer) r;
+                                return NingGuang.cardFill(appCtx, (Integer) r);
+                            }
+                            if (NingGuang.isCardInk(id)) {
+                                return NingGuang.cardInk(appCtx, (Integer) r);
+                            }
+                        }
+                        // 空格子：id 命中 或 解析出来的颜色命中（R$color 被混淆时靠后者）
+                        int emptyId = emptyCellBgId(host);
+                        boolean isEmpty = id == emptyId
+                                || (Integer) r == emptyCellBgColor(host, id);
+                        if (isEmpty) {
+                            int tinted = NingGuang.emptyCellTint(appCtx, (Integer) r);
+                            if (!emptyTintLogged) {
+                                emptyTintLogged = true;
+                                Logx.i(T, "空格子半透明生效 color=#" + Integer.toHexString((Integer) r)
+                                        + " → #" + Integer.toHexString(tinted)
+                                        + " type=" + ThemeStore.type(appCtx));
+                            }
+                            return tinted;
+                        }
+                    } catch (Throwable t) {
+                        Logx.w(T, "emptyCellTint 失败: " + t);
                     }
-                    return chain.proceed();
+                    return r;
                 });
-        Logx.i(T, "hooked SchoolTimeTableActivity#onCreate (block page-from-manage)");
+        Logx.i(T, "hooked " + utilName + "#" + name + "(int,Theme) (空格子半透明)");
+    }
+
+    /** 在 util 类里找「static int (int, Resources.Theme)」那支取色方法 */
+    private static Method colorMethodOf(Class<?> k) {
+        for (Method m : k.getDeclaredMethods()) {
+            if (!java.lang.reflect.Modifier.isStatic(m.getModifiers())) continue;
+            if (m.getReturnType() != int.class) continue;
+            Class<?>[] pt = m.getParameterTypes();
+            if (pt.length == 2 && pt[0] == int.class
+                    && pt[1] == android.content.res.Resources.Theme.class) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    private static volatile int emptyCellBgId = -2;
+    private static volatile int emptyCellBgValue = -1;
+    private static volatile boolean emptyTintLogged;
+
+    /**
+     * R.color.empty_course_bg 解析出的实际颜色。
+     * 宿主这张表是按 id 取色的，但 R$color 可能被混淆/改包名，id 命不中时用「值」兜底匹配。
+     */
+    private static int emptyCellBgColor(ClassLoader host, int resId) {
+        int cached = emptyCellBgValue;
+        if (cached != -1) return cached;
+        int value = 0;
+        try {
+            android.content.res.Resources res = appCtx == null ? null : appCtx.getResources();
+            int id = emptyCellBgId(host);
+            if (res != null && id != 0) value = res.getColor(id, null);
+            if (value == 0) {
+                // R$color 被裁掉/改名时的兜底：宿主 resources 里 empty_course_bg 的实测值
+                // values=#efeff1（白天，实心）、values-night=#14ffffff（夜里 8% 白）
+                boolean night = (res != null && (res.getConfiguration().uiMode
+                        & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                        == android.content.res.Configuration.UI_MODE_NIGHT_YES);
+                value = night ? 0x14FFFFFF : 0xFFEFEFF1;
+            }
+        } catch (Throwable t) {
+            Logx.w(T, "empty_course_bg 解析失败: " + t);
+        }
+        emptyCellBgValue = value;
+        Logx.i(T, "empty_course_bg color=#" + Integer.toHexString(value));
+        return value;
+    }
+
+    private static int emptyCellBgId(ClassLoader host) {
+        int id = emptyCellBgId;
+        if (id != -2) return id;
+        try {
+            // 首选：按名字问 resources（不依赖 R 类，R8 把 R$color 裁掉也照样能取）
+            android.content.res.Resources res = appCtx == null ? null : appCtx.getResources();
+            if (res != null) id = res.getIdentifier("empty_course_bg", "color", appCtx.getPackageName());
+        } catch (Throwable ignored) {
+            id = 0;
+        }
+        if (id == 0) {
+            try {
+                Class<?> r = Class.forName("com.android.calendar.R$color", false, host);
+                java.lang.reflect.Field f = r.getDeclaredField("empty_course_bg");
+                id = f.getInt(null);
+            } catch (Throwable t) {
+                id = 0;
+            }
+        }
+        emptyCellBgId = id;
+        return id;
+    }
+
+    private static float f(Object o) {
+        return o instanceof Number ? ((Number) o).floatValue() : 0f;
+    }
+
+    /** 宿主 Application（z0 是静态工具，拿不到 Context，用这个） */
+    static volatile Context appCtx;
+
+
+    /**
+     * 课程卡片玻璃化（凝光的「透」）：宿主画一张卡片是
+     *
+     * <pre>
+     *   whiteBgPaing.setColor(getWHITE_COLOR())          // 实心白底
+     *   canvas.drawRoundRect(rect, r, r, whiteBgPaing)
+     *   paint.setColor(z0.c(TodoColor.b(color).getBgColor()))  // ← 注意：getBgColor() 是**资源 id**
+     *   canvas.drawRoundRect(rect, r, r, paint)
+     *   drawCourseText(...)                              // 深色字
+     * </pre>
+     *
+     * 要让底图从卡片里透出来：白底刷透明 + 课程色换成半透明深色 + 字换白。
+     *
+     * 颜色不能在 {@code TodoColor#getBgColor()} 上改 —— 它返回的是 R.color 的 **id**，
+     * 宿主紧接着把 id 交给 {@code z0.c(resId)} 去 getColor，返回颜色会直接
+     * {@code Resources$NotFoundException}（实测崩过一次，见 logs\deploy-20261115-134308.log）。
+     * 所以改在取色这一步（{@link #hookEmptyCellTint}），按 id 判断。
+     */
+    private static void hookCourseGlass(XposedModule module, ClassLoader host) {
+        Class<?> tv = resolve(host, "com.android.calendar.card.schooltimetable.view.TableView");
+        if (tv != null) {
+            Method drawCourse = Ref.methodOf(tv, "drawCourse", android.graphics.Canvas.class);
+            if (drawCourse != null) {
+                drawCourse.setAccessible(true);
+                module.hook(drawCourse)
+                        .setId("ng_glass_window")
+                        .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                        .intercept(chain -> {
+                            Object self = chain.getThisObject();
+                            NingGuang.basePaint = Ref.field(self, "whiteBgPaing");
+                            NingGuang.inTable = true;
+                            try {
+                                if (self instanceof android.view.View && appCtx != null
+                                        && ThemeStore.ningguang(appCtx)) {
+                                    // 两块材质都要「下面真实画着什么」：先算映射、按需重抓采样位图。
+                                    // 映射必须用**当前画布矩阵**（宿主上下滑动是 canvas.translate，
+                                    // 拿 View 的屏幕坐标会停在滑动前，玻璃就错位）。
+                                    Object a0 = chain.getArg(0);
+                                    Backdrop.prepare(appCtx, (android.view.View) self,
+                                            a0 instanceof android.graphics.Canvas
+                                                    ? (android.graphics.Canvas) a0 : null);
+                                }
+                                return chain.proceed();
+                            } finally {
+                                NingGuang.inTable = false;
+                                NingGuang.basePaint = null;
+                            }
+                        });
+                Logx.i(T, "hooked TableView#drawCourse (玻璃卡窗口)");
+            }
+        }
+
+        NingGuang.palette(host);
+
+        // 白底那支 Paint 刷透明：只认 whiteBgPaing 这一个对象，别的 setColor 原样放行
+        Method setColor = Ref.methodOf(android.graphics.Paint.class, "setColor", int.class);
+        if (setColor != null) {
+            setColor.setAccessible(true);
+            module.hook(setColor)
+                    .setId("ng_card_base_paint")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (NingGuang.inTable && NingGuang.basePaint != null
+                                && chain.getThisObject() == NingGuang.basePaint
+                                && appCtx != null && NingGuang.darkGlass(appCtx)) {
+                            return chain.proceed(new Object[]{0});
+                        }
+                        return chain.proceed();
+                    });
+            Logx.i(T, "hooked Paint#setColor (课程卡白底透明)");
+        }
+
+        /*
+         * 宿主画课程卡的顺序是：
+         *   paint.setColor(z0.c(getBgColor()))   ← 我们换成 0（透明）
+         *   paint.setAlpha(255)                  ← 又被打回不透明（卡片变纯黑）
+         * 所以 setAlpha 也要拦：只对「当前色 == 0 的那支 Paint」在课表窗口内把 alpha 按 0 处理。
+         */
+        Method setAlpha = Ref.methodOf(android.graphics.Paint.class, "setAlpha", int.class);
+        if (setAlpha != null) {
+            setAlpha.setAccessible(true);
+            module.hook(setAlpha)
+                    .setId("ng_card_base_alpha")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (NingGuang.inTable && appCtx != null && NingGuang.glass(appCtx)
+                                && chain.getThisObject() instanceof android.graphics.Paint
+                                && ((android.graphics.Paint) chain.getThisObject()).getColor() == 0) {
+                            return chain.proceed(new Object[]{0});
+                        }
+                        return chain.proceed();
+                    });
+            Logx.i(T, "hooked Paint#setAlpha (透明卡片 alpha)");
+        }
+    }
+
+    private static void hookBlockLegacyTablePage(XposedModule module, ClassLoader host) {
+        TableEntryRoute.install(module, host);
     }
 
     /** 课表管理页实例：切换课表后要把它一起收掉，用户直接回到主页课表页 */
@@ -489,6 +782,7 @@ final class Hooks {
         }
     }
 }
+
 
 
 

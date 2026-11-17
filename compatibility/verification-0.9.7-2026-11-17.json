@@ -1,0 +1,104 @@
+{
+  "scope": "Static host contracts/resources, plus isolated ART synthetic checks if requested. Not full UI or database regression.",
+  "hosts": [
+    {
+      "apk": "日历_17.3.70.apk",
+      "sha256": "ba72436c495e581e058878a82a9c5858b061e2bf08105871bc33e9a853354752",
+      "package": "com.coloros.calendar",
+      "versionCode": 17003070,
+      "versionName": "17.3.70",
+      "classes": 44318,
+      "contractCount": 405,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#s(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#G(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "b#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "hostApk": "日历_17.3.70.apk",
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.s(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.G(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public b(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 415,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "fingerprint": "OnePlus/PLR110/OP6117L1:17/CP2A.260605.016/B.aa44f1_1b9f17a_1b7f6b9:user/release-keys",
+        "exitCode": 0
+      }
+    },
+    {
+      "apk": "日历_17.6.20.apk",
+      "sha256": "c78a409a42c3289557baac7a7494c04d5efc1af3ae3541d100ef93acf157719a",
+      "package": "com.coloros.calendar",
+      "versionCode": 17006020,
+      "versionName": "17.6.20",
+      "classes": 48750,
+      "contractCount": 405,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#t(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#N(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "d#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "hostApk": "日历_17.6.20.apk",
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.t(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.N(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public d(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 415,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "fingerprint": "OnePlus/PLR110/OP6117L1:17/CP2A.260605.016/B.aa44f1_1b9f17a_1b7f6b9:user/release-keys",
+        "exitCode": 0
+      }
+    },
+    {
+      "apk": "日历-17.8.0(17008000).apk",
+      "sha256": "c33cf14c1403cd361fb0615e7ed6d7c3712e082acaf88b1cb0b5bcad0e850465",
+      "package": "com.coloros.calendar",
+      "versionCode": 17008000,
+      "versionName": "17.8.0",
+      "classes": 49300,
+      "contractCount": 405,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#t(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#N(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "d#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "hostApk": "日历-17.8.0(17008000).apk",
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.t(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.N(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public d(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 415,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "fingerprint": "OnePlus/PLR110/OP6117L1:17/CP2A.260605.016/B.aa44f1_1b9f17a_1b7f6b9:user/release-keys",
+        "exitCode": 0
+      }
+    }
+  ]
+}

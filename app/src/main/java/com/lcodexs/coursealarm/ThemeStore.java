@@ -102,10 +102,83 @@ final class ThemeStore {
         if (s != null) s.edit().putInt("image_alpha", Math.max(0, Math.min(100, pct))).apply();
     }
 
+    /**
+     * 课程卡样式。
+     *   STYLE_CLASSIC  = 0 宿主原样（实心卡）
+     *   STYLE_NINGGUANG= 1 ColorOS 17 凝光（细轮廓光 + 顶部凝光 + 下沿折射）
+     *   STYLE_LIQUID   = 2 液态玻璃（粗玻璃边 + 镜面高光 + 外阴影，参照 AndroidLiquidGlass）
+     */
+    static final int STYLE_CLASSIC = 0;
+    static final int STYLE_NINGGUANG = 1;
+    static final int STYLE_LIQUID = 2;
+
+    static int style(Context c) {
+        SharedPreferences s = p(c);
+        if (s == null) return STYLE_NINGGUANG;
+        if (s.contains("card_style")) return s.getInt("card_style", STYLE_NINGGUANG);
+        // 老版本只存过布尔值 ningguang：true 当成凝光，false 当成经典
+        return s.getBoolean("ningguang", true) ? STYLE_NINGGUANG : STYLE_CLASSIC;
+    }
+
+    static void setStyle(Context c, int style) {
+        SharedPreferences s = p(c);
+        if (s != null) {
+            s.edit().putInt("card_style", Math.max(0, Math.min(2, style)))
+                    .putBoolean("ningguang", style != STYLE_CLASSIC).apply();
+        }
+    }
+
+    /** 是否启用「玻璃系」样式（凝光或液态玻璃）—— 卡片透明化/字色自适应都按它判断 */
+    static boolean ningguang(Context c) {
+        return style(c) != STYLE_CLASSIC;
+    }
+
+    static void setNingguang(Context c, boolean on) {
+        setStyle(c, on ? STYLE_NINGGUANG : STYLE_CLASSIC);
+    }
+
+    /**
+     * 强制走 ColorOS 16（COUI-Kit）那套凝光参数，用于在没有 ColorOS 16 真机时验证兜底分支。
+     * 正常情况保持 false：有 caustic 资源就走系统资源。
+     */
+    static boolean forceLegacy(Context c) {
+        SharedPreferences s = p(c);
+        return s != null && s.getBoolean("ng_legacy", false);
+    }
+
+    static void setForceLegacy(Context c, boolean on) {
+        SharedPreferences s = p(c);
+        if (s != null) s.edit().putBoolean("ng_legacy", on).apply();
+    }
+
     /** 背景图上的遮罩浓度 0..230（越大背景越淡、课程文字越清楚） */
     static int scrim(Context c) {
         SharedPreferences s = p(c);
         return s == null ? 120 : s.getInt("scrim", 120);
+    }
+
+    /**
+     * 液态玻璃的绘制级开关（位掩码，默认全开）：定位「一上玻璃整张课表发白/发空」这类
+     * GPU 管线故障时，用 {@code adb shell} 改这一个 pref 就能逐级二分，不用反复重装。
+     *
+     * <pre>
+     *   1  = 折射（RuntimeShader + 背景采样）
+     *   2  = onDrawSurface 半透明白
+     *   4  = 边缘高光
+     *   8  = 内侧阴影（玻璃厚度）
+     *   16 = 下沿课程聚色
+     * </pre>
+     */
+    static final int G_LENS = 1;
+    static final int G_SURFACE = 2;
+    static final int G_HIGHLIGHT = 4;
+    static final int G_INNER = 8;
+    static final int G_COLLECT = 16;
+    static final int G_ALL = 31;
+
+    static int glassStages(Context c) {
+        SharedPreferences s = p(c);
+        return s == null ? G_ALL : s.getInt("glass_stage", G_ALL);
     }
 
     static void setScrim(Context c, int v) {

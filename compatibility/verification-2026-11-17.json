@@ -1,0 +1,137 @@
+{
+  "scope": "Static host contracts/resources, plus isolated ART synthetic checks if requested. Not full UI or database regression.",
+  "hosts": [
+    {
+      "apk": "日历_17.3.70.apk",
+      "sha256": "ba72436c495e581e058878a82a9c5858b061e2bf08105871bc33e9a853354752",
+      "package": "com.coloros.calendar",
+      "versionCode": 17003070,
+      "versionName": "17.3.70",
+      "classes": 44318,
+      "contractCount": 401,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#s(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#G(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "b#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.s(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.G(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public b(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 410,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "exitCode": 0
+      }
+    },
+    {
+      "apk": "日历_17.6.20.apk",
+      "sha256": "c78a409a42c3289557baac7a7494c04d5efc1af3ae3541d100ef93acf157719a",
+      "package": "com.coloros.calendar",
+      "versionCode": 17006020,
+      "versionName": "17.6.20",
+      "classes": 48750,
+      "contractCount": 401,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#t(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#N(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "d#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.t(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.N(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public d(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 410,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "exitCode": 0
+      }
+    },
+    {
+      "apk": "日历-17.8.0(17008000).apk",
+      "sha256": "c33cf14c1403cd361fb0615e7ed6d7c3712e082acaf88b1cb0b5bcad0e850465",
+      "package": "com.coloros.calendar",
+      "versionCode": 17008000,
+      "versionName": "17.8.0",
+      "classes": 49300,
+      "contractCount": 401,
+      "resourceCount": 30,
+      "selectors": {
+        "changeType": "com.android.calendar.ui.main.calendar.view.DateTabFoldLayout#t(I)V",
+        "createSheet": "com.android.calendar.ui.main.hepler.ImportCourseTableHelper#N(Landroidx/fragment/app/FragmentActivity;Z)V",
+        "weekAdapter": "d#<init>(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V",
+        "pagerCurrentItem": "androidx.viewpager2.widget.ViewPager2#m(IZ)V"
+      },
+      "passed": true,
+      "errors": [],
+      "runtime": {
+        "changeType": "public final void com.android.calendar.ui.main.calendar.view.DateTabFoldLayout.t(int)",
+        "createSheet": "public static final void com.android.calendar.ui.main.hepler.ImportCourseTableHelper.N(androidx.fragment.app.FragmentActivity,boolean)",
+        "weekAdapter": "public d(android.content.Context,java.lang.String,java.util.List,int,boolean,int)",
+        "pagerCurrentItem": "public void androidx.viewpager2.widget.ViewPager2.m(int,boolean)",
+        "kotlinUnit": "kotlin.s",
+        "resources": 30,
+        "passed": true,
+        "checksPassed": 410,
+        "errors": [],
+        "device": "192.168.137.143:5555",
+        "exitCode": 0
+      }
+    }
+  ],
+  "date": "2026-11-17",
+  "deviceSdk": 37,
+  "baselineCommit": "269a18266889d20f4795fe3a2418e40879d41995",
+  "release": {
+    "file": "ColorOS日历增强-v0.9.6-release.apk",
+    "package": "io.github.yuangug.coursealarm",
+    "versionName": "0.9.6",
+    "versionCode": 33,
+    "sha256": "3aeb8331fc0b5484c6760967ae5e3a223e7deabff656d6a4af2dd8734b79c699",
+    "verificationClassesAbsent": true,
+    "signatureVerified": true,
+    "signatureScheme": "v2",
+    "installedOn": "192.168.137.143:5555",
+    "installedVersionCode": 33,
+    "installedVersionName": "0.9.6",
+    "hostApplicationRestarted": false
+  },
+  "lint": {
+    "baselineCommit": "269a18266889d20f4795fe3a2418e40879d41995",
+    "baselineCounts": {
+      "Error": 137,
+      "Warning": 72
+    },
+    "currentCounts": {
+      "Error": 137,
+      "Warning": 73
+    },
+    "introduced": [
+      [
+        "IconMissingDensityFolder",
+        "Warning",
+        "Missing density variation folders in `src\\main\\res`: drawable-hdpi, drawable-mdpi, drawable-xhdpi",
+        [
+          "app/src/main/res"
+        ]
+      ]
+    ],
+    "resolved": []
+  }
+}

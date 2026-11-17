@@ -13,40 +13,92 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * 课表主题面板：底部卡片 sheet（照宿主「创建课表」那种样式）。
+ * 课表主题面板。
  *
- *   ┌──────────────────────────────┐
- *   │ (取消)       课表主题          │
- *   │  ┌────┐  ┌────┐  ┌────┐  ┌────┐│
- *   │  │无  │  │纯色│  │渐变│  │图片││
- *   │  └────┘  └────┘  └────┘  └────┘│
- *   │        遮罩  (浅)(中)(深)       │
- *   └──────────────────────────────┘
+ * <p>第一优先：**宿主自己的** {@code com.coui.appcompat.panel.COUIBottomSheetDialog}
+ * （ColorOS 17 的底部面板：自带毛玻璃底、大圆角、跟手拖拽、面板进出场动效、身后的原生遮罩）。
+ * 宿主「创建课表 / 查看周表」弹的就是这一族面板，所以样式天然一致 ——
+ * 之前手搓 Dialog（自带白底 + setDimAmount(0.35)）才是「和日历原生界面不符、遮罩改了没反应」的根因。
  *
- * 二级面板（纯色/渐变）在同一张 sheet 里就地替换内容，不再叠一层弹窗。
+ * <p>取不到 COUI 面板时，退回自绘底部 sheet（老实现），功能不受影响。
+ *
+ * <p>内容区只用宿主 token（couiColorLabelPrimary / LabelSecondary / Primary / FillThin），
+ * 不再写死白色和蓝色；明暗跟随 {@code Configuration.uiMode}。
  */
 final class ThemeSheet {
     private static final String T = CourseAlarmEntry.TAG;
 
-    private ThemeSheet() {
+    private final Activity a;
+    private final ClassLoader host;
+    private boolean night;
+    private int fg, sub, fill, accent, hint;
+
+    /** 原生面板（COUIBottomSheetDialog）或兜底 Dialog，二选一 */
+    private Object sheet;
+    private Dialog dlg;
+    private LinearLayout content;
+
+    private ThemeSheet(Activity a) {
+        this.a = a;
+        this.host = a.getClassLoader();
     }
 
     static void show(Activity a) {
         if (a == null) return;
-        final boolean night = isNight(a);
-        final int bgColor = night ? 0xFF1C1F25 : 0xFFFFFFFF;
-        final int cardColor = night ? 0xFF2A2E36 : 0xFFF2F3F7;
-        final int fg = night ? 0xFFF0F1F3 : 0xFF1A1A1A;
-        final int sub = night ? 0xFF9AA0AB : 0xFF808690;
-        final int accent = accentColor(a);
+        try {
+            new ThemeSheet(a).open();
+        } catch (Throwable t) {
+            Logx.e(T, "theme sheet 打开失败", t);
+            CurriculumIo.toast(a, "主题面板打不开：" + t);
+        }
+    }
 
-        final Dialog dlg = new Dialog(a);
+    private void open() {
+        night = isNight(a);
+        resolveTokens();
+        content = new LinearLayout(a);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        content.setPadding(pad, dp(4), pad, dp(20));
+
+        if (!nativeSheet()) legacySheet();
+        buildMain();
+    }
+
+    // ── 面板本体 ─────────────────────────────────────────────────────────────
+
+    /** 宿主原生底部面板；类/构造器/方法任何一步缺失都返回 false 走兜底 */
+    private boolean nativeSheet() {
+        try {
+            Class<?> cls = Ref.clsStrict(host, "com.coui.appcompat.panel.COUIBottomSheetDialog");
+            int style = a.getResources().getIdentifier("DefaultBottomSheetDialog", "style", a.getPackageName());
+            Object d = style != 0
+                    ? cls.getConstructor(Context.class, int.class).newInstance(a, style)
+                    : cls.getConstructor(Context.class).newInstance(a);
+            Ref.callName(d, "setContentView", content);
+            quiet(d, "setBackgroundBlur", Boolean.TRUE);      // 面板毛玻璃
+            quiet(d, "setCanPullUp", Boolean.FALSE);
+            quiet(d, "setDraggable", Boolean.FALSE);          // 内容里有横滑色卡，别跟手
+            quiet(d, "setCanceledOnTouchOutside", Boolean.TRUE);
+            Ref.callName(d, "show");
+            sheet = d;
+            Logx.i(T, "theme sheet: 宿主原生 COUIBottomSheetDialog (style="
+                    + Integer.toHexString(style) + ")");
+            return true;
+        } catch (Throwable t) {
+            Logx.w(T, "COUIBottomSheetDialog 不可用，回退自绘 sheet: " + t);
+            return false;
+        }
+    }
+
+    /** 兜底：老的自绘底部 sheet（非 ColorOS 宿主时才走到） */
+    private void legacySheet() {
+        dlg = new Dialog(a);
         dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
         Window w = dlg.getWindow();
         if (w != null) {
@@ -55,63 +107,16 @@ final class ThemeSheet {
             w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             w.setGravity(Gravity.BOTTOM);
         }
-
-        final LinearLayout sheet = new LinearLayout(a);
-        sheet.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout wrap = new LinearLayout(a);
+        wrap.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadii(new float[]{dp(a, 24), dp(a, 24), dp(a, 24), dp(a, 24), 0, 0, 0, 0});
-        sheet.setBackground(bg);
-        int pad = dp(a, 20);
-        sheet.setPadding(pad, dp(a, 12), pad, dp(a, 20) + navBar(a));
-
-        // ── 标题行：(取消) 居中标题
-        FrameLayout head = new FrameLayout(a);
-        head.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 44)));
-        TextView cancel = new TextView(a);
-        cancel.setText("取消");
-        cancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        cancel.setTextColor(fg);
-        cancel.setGravity(Gravity.CENTER);
-        GradientDrawable cbg = new GradientDrawable();
-        cbg.setColor(cardColor);
-        cbg.setCornerRadius(dp(a, 18));
-        cancel.setBackground(cbg);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(a, 68), dp(a, 34));
-        clp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
-        cancel.setLayoutParams(clp);
-        cancel.setOnClickListener(v -> dlg.dismiss());
-        head.addView(cancel);
-
-        TextView title = new TextView(a);
-        title.setText("课表主题");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
-        title.setTextColor(fg);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.gravity = Gravity.CENTER;
-        title.setLayoutParams(tlp);
-        head.addView(title);
-        sheet.addView(head);
-
-        // ── 内容区（一级/二级共用）
-        final ScrollView scroll = new ScrollView(a);
-        scroll.setLayoutParams(new LinearLayout.LayoutParams(
+        bg.setColor(night ? 0xFF1C1F25 : 0xFFFFFFFF);
+        bg.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
+        wrap.setBackground(bg);
+        wrap.addView(content, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        sheet.addView(scroll);
-
-        final LinearLayout content = new LinearLayout(a);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(0, dp(a, 8), 0, 0);
-        scroll.addView(content);
-
-        dlg.setContentView(sheet, new ViewGroup.LayoutParams(
+        dlg.setContentView(wrap, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        buildMain(a, dlg, content, cardColor, fg, sub, accent, night);
         dlg.setOnShowListener(d -> {
             Window ww = dlg.getWindow();
             if (ww != null) {
@@ -119,225 +124,288 @@ final class ThemeSheet {
             }
         });
         dlg.show();
-        Logx.i(T, "theme sheet shown night=" + night);
+        Logx.i(T, "theme sheet: 自绘兜底 sheet");
     }
 
-    // ── 一级：四个卡片 ──────────────────────────────────────────────────────
+    private void dismiss() {
+        try {
+            if (sheet != null) {
+                Ref.callName(sheet, "dismiss");
+            } else if (dlg != null) {
+                dlg.dismiss();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
-    private static void buildMain(Activity a, Dialog dlg, LinearLayout content,
-                                  int cardColor, int fg, int sub, int accent, boolean night) {
+    // ── 一级：背景类型 + 遮罩 + 课程卡片 ──────────────────────────────────────
+
+    private void buildMain() {
         content.removeAllViews();
+        content.addView(header("课表主题", () -> dismiss()));
+
         LinearLayout row = new LinearLayout(a);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dp(a, 10);
+        rlp.topMargin = dp(12);
         row.setLayoutParams(rlp);
 
         int cur = ThemeStore.type(a);
-        row.addView(card(a, "无背景", 0,
-                cur == ThemeStore.TYPE_NONE, cardColor, fg, sub, accent, v -> {
-                    ThemeStore.setType(a, ThemeStore.TYPE_NONE);
-                    ThemeBg.apply(a);
-                    dlg.dismiss();
-                }), cellLp(a));
-
-        row.addView(card(a, "纯色", 1,
-                cur == ThemeStore.TYPE_SOLID, cardColor, fg, sub, accent,
-                v -> buildSolid(a, dlg, content, cur, cardColor, fg, sub, accent)), cellLp(a));
-
-        row.addView(card(a, "渐变", 2,
-                cur == ThemeStore.TYPE_GRADIENT, cardColor, fg, sub, accent,
-                v -> buildGradient(a, dlg, content, cur, cardColor, fg, sub, accent)), cellLp(a));
-
-        row.addView(card(a, "图片", 3,
-                cur == ThemeStore.TYPE_IMAGE, cardColor, fg, sub, accent, v -> {
-                    ThemeBg.pick(a);
-                    dlg.dismiss();
-                }), cellLp(a));
-
+        row.addView(tile("无背景", 0, cur == ThemeStore.TYPE_NONE, v -> {
+            ThemeStore.setType(a, ThemeStore.TYPE_NONE);
+            ThemeBg.apply(a);
+            dismiss();
+        }), cellLp());
+        row.addView(tile("纯色", 1, cur == ThemeStore.TYPE_SOLID, v -> buildSolid()), cellLp());
+        row.addView(tile("渐变", 2, cur == ThemeStore.TYPE_GRADIENT, v -> buildGradient()), cellLp());
+        row.addView(tile("图片", 3, cur == ThemeStore.TYPE_IMAGE, v -> {
+            ThemeBg.pick(a);
+            dismiss();
+        }), cellLp());
         content.addView(row);
 
-        // 遮罩档位（图片模式下影响可读性）
-        TextView label = new TextView(a);
-        label.setText("背景遮罩");
-        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        label.setTextColor(sub);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        llp.topMargin = dp(a, 20);
-        label.setLayoutParams(llp);
-        content.addView(label);
-
-        LinearLayout scrim = new LinearLayout(a);
-        scrim.setOrientation(LinearLayout.HORIZONTAL);
+        // 背景遮罩
+        content.addView(sectionLabel("背景遮罩", dp(20)));
+        LinearLayout scrimRow = new LinearLayout(a);
+        scrimRow.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = dp(a, 8);
-        scrim.setLayoutParams(slp);
+        slp.topMargin = dp(8);
+        scrimRow.setLayoutParams(slp);
         int curScrim = ThemeStore.scrim(a);
-        int[][] levels = {{60, 0}, {120, 1}, {190, 2}};
-        String[] names = {"浅", "中", "深"};
+        int[] levels = {0, 60, 120, 190};
+        String[] names = {"透明", "浅", "中", "深"};
         for (int i = 0; i < names.length; i++) {
-            final int value = levels[i][0];
+            final int value = levels[i];
             boolean on = Math.abs(curScrim - value) < 20;
-            TextView chip = chip(a, names[i], on, cardColor, fg, accent);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    dp(a, 64), dp(a, 34));
-            lp.rightMargin = dp(a, 10);
+            TextView chip = chip(names[i], on);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(64), dp(34));
+            lp.rightMargin = dp(10);
             chip.setLayoutParams(lp);
             chip.setOnClickListener(v -> {
                 ThemeStore.setScrim(a, value);
                 ThemeBg.apply(a);
-                buildMain(a, dlg, content, cardColor, fg, sub, accent, false);
+                buildMain();
+                Logx.i(T, "背景遮罩 → " + value);
             });
-            scrim.addView(chip);
+            scrimRow.addView(chip);
         }
-        content.addView(scrim);
+        content.addView(scrimRow);
+        if (cur == ThemeStore.TYPE_NONE) {
+            // 老实说明：没有背景层时遮罩无处可盖（之前的实现是默默无效，用户只会觉得坏了）
+            content.addView(hintText("当前是「无背景」，遮罩没有可盖的背景层；选了纯色/渐变/图片才会生效"));
+        }
+
+        // 课程卡片（经典 / 凝光 / 液态玻璃）
+        content.addView(sectionLabel("课程卡片", dp(18)));
+        LinearLayout ngRow = new LinearLayout(a);
+        ngRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nlp.topMargin = dp(8);
+        ngRow.setLayoutParams(nlp);
+        int curStyle = ThemeStore.style(a);
+        String[] styles = {"经典", "凝光", "液态玻璃"};
+        int[] styleValues = {ThemeStore.STYLE_CLASSIC, ThemeStore.STYLE_NINGGUANG, ThemeStore.STYLE_LIQUID};
+        int[] widths = {64, 64, 96};
+        for (int i = 0; i < styles.length; i++) {
+            final int value = styleValues[i];
+            TextView chip = chip(styles[i], curStyle == value);
+            chip.setLayoutParams(chipLp(widths[i]));
+            chip.setOnClickListener(v -> {
+                ThemeStore.setStyle(a, value);
+                HostTablePage.repaint();
+                buildMain();
+                Logx.i(T, "课程卡样式 → " + styles[value] + " (" + NingGuang.describe(a) + ")");
+            });
+            ngRow.addView(chip);
+        }
+        content.addView(ngRow);
+
+        NingGuang.Tokens tk = NingGuang.tokens(a);
+        String hint;
+        if (curStyle == ThemeStore.STYLE_LIQUID) {
+            hint = "液态玻璃：背景按 SDF 法线位移重采样（真折射）+ 边缘色散 + 一圈镜面高光 + 内侧厚度阴影"
+                    + "（AGSL · 每帧现算，采样源＝页面真实背景层）";
+        } else {
+            hint = "凝光：磨砂模糊 + 材质混色 + 内晕 + 轮廓光，材质参数直接取宿主底栏那一档（"
+                    + NativeMaterial.dump(NativeMaterial.get(a)) + "）";
+        }
+        content.addView(hintText(hint));
     }
 
-    // ── 二级：纯色 / 渐变 ──────────────────────────────────────────────────
+    // ── 二级：纯色 / 渐变 ────────────────────────────────────────────────────
 
-    private static void buildSolid(Activity a, Dialog dlg, LinearLayout content, int curType,
-                                   int cardColor, int fg, int sub, int accent) {
+    private void buildSolid() {
         content.removeAllViews();
-        content.addView(subHeader(a, "选择底色", fg, sub, v -> {
-            buildMain(a, dlg, content, cardColor, fg, sub, accent, false);
-        }));
+        content.addView(header("选择底色", this::buildMain));
 
         LinearLayout row = new LinearLayout(a);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dp(a, 12);
+        rlp.topMargin = dp(20);
         row.setLayoutParams(rlp);
 
+        int curType = ThemeStore.type(a);
         int current = ThemeStore.solidIndex(a);
         for (int i = 0; i < ThemeStore.SOLIDS.length; i++) {
             final int idx = i;
-            int color = ThemeStore.SOLIDS[i];
+            boolean on = idx == current && curType == ThemeStore.TYPE_SOLID;
             View sw = new View(a);
             GradientDrawable g = new GradientDrawable();
             g.setShape(GradientDrawable.OVAL);
-            g.setColor(color);
-            g.setStroke(dp(a, idx == current && curType == ThemeStore.TYPE_SOLID ? 3 : 1),
-                    idx == current && curType == ThemeStore.TYPE_SOLID ? accent : 0x33808080);
+            g.setColor(ThemeStore.SOLIDS[i]);
+            g.setStroke(dp(on ? 3 : 1), on ? accent : 0x33808080);
             sw.setBackground(g);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(a, 44), dp(a, 44));
-            lp.rightMargin = dp(a, 10);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
+            lp.rightMargin = dp(10);
             sw.setLayoutParams(lp);
             sw.setOnClickListener(v -> {
                 ThemeStore.setSolid(a, idx);
                 ThemeBg.apply(a);
-                dlg.dismiss();
+                dismiss();
             });
             row.addView(sw);
         }
         content.addView(row);
+        content.addView(hintText("纯色底 + 半透明格子：底面会从课表格子里透出来"));
     }
 
-    private static void buildGradient(Activity a, Dialog dlg, LinearLayout content, int curType,
-                                      int cardColor, int fg, int sub, int accent) {
+    private void buildGradient() {
         content.removeAllViews();
-        content.addView(subHeader(a, "选择渐变", fg, sub, v -> {
-            buildMain(a, dlg, content, cardColor, fg, sub, accent, false);
-        }));
+        content.addView(header("选择渐变", this::buildMain));
 
         LinearLayout row = new LinearLayout(a);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dp(a, 12);
+        rlp.topMargin = dp(20);
         row.setLayoutParams(rlp);
 
+        int curType = ThemeStore.type(a);
         int current = ThemeStore.gradientIndex(a);
         for (int i = 0; i < ThemeStore.GRADIENTS.length; i++) {
             final int idx = i;
-            int[] ab = ThemeStore.GRADIENTS[i];
+            boolean on = idx == current && curType == ThemeStore.TYPE_GRADIENT;
             View sw = new View(a);
-            GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, ab);
-            g.setCornerRadius(dp(a, 12));
-            g.setStroke(dp(a, idx == current && curType == ThemeStore.TYPE_GRADIENT ? 3 : 1),
-                    idx == current && curType == ThemeStore.TYPE_GRADIENT ? accent : 0x33808080);
+            GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    ThemeStore.GRADIENTS[i]);
+            g.setCornerRadius(dp(14));
+            g.setStroke(dp(on ? 3 : 1), on ? accent : 0x33808080);
             sw.setBackground(g);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(a, 62), dp(a, 62));
-            lp.rightMargin = dp(a, 12);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(62), dp(62));
+            lp.rightMargin = dp(12);
             sw.setLayoutParams(lp);
             sw.setOnClickListener(v -> {
                 ThemeStore.setGradient(a, idx);
                 ThemeBg.apply(a);
-                dlg.dismiss();
+                dismiss();
             });
             row.addView(sw);
         }
         content.addView(row);
+        content.addView(hintText("渐变底 + 半透明格子：底面会从课表格子里透出来"));
     }
 
-    private static View subHeader(Activity a, String text, int fg, int sub,
-                                 View.OnClickListener back) {
+    // ── 小部件 ───────────────────────────────────────────────────────────────
+
+    private View header(String title, Runnable onClose) {
         FrameLayout head = new FrameLayout(a);
+        head.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+
+        TextView close = new TextView(a);
+        close.setText("取消");
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        close.setTextColor(sub);
+        close.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(60), dp(34));
+        clp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        close.setLayoutParams(clp);
+        close.setOnClickListener(v -> onClose.run());
+        head.addView(close);
+
         TextView t = new TextView(a);
-        t.setText(text);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        t.setTextColor(fg);
+        t.setText(title);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setTextColor(fg);
         t.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tlp.gravity = Gravity.CENTER;
-        head.addView(t, tlp);
-
-        TextView backBtn = new TextView(a);
-        backBtn.setText("返回");
-        backBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        backBtn.setTextColor(sub);
-        backBtn.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(a, 60), dp(a, 34));
-        blp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
-        head.addView(backBtn, blp);
-        backBtn.setOnClickListener(back);
-        head.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 44)));
+        t.setLayoutParams(tlp);
+        head.addView(t);
         return head;
     }
 
-    // ── 小部件 ────────────────────────────────────────────────────────────
+    private TextView sectionLabel(String text, int topMargin) {
+        TextView tv = new TextView(a);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setTextColor(sub);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = topMargin;
+        tv.setLayoutParams(lp);
+        return tv;
+    }
 
-    private static LinearLayout.LayoutParams cellLp(Activity a) {
+    private TextView hintText(String text) {
+        TextView tv = new TextView(a);
+        tv.setText(text);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tv.setTextColor(hint);
+        tv.setAlpha(0.75f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    private LinearLayout.LayoutParams cellLp() {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        lp.leftMargin = dp(a, 4);
-        lp.rightMargin = dp(a, 4);
+        lp.leftMargin = dp(4);
+        lp.rightMargin = dp(4);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams chipLp(int w) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(w), dp(34));
+        lp.rightMargin = dp(10);
         return lp;
     }
 
     /** 一个卡片：圆角方块图标 + 下方文字（图标自绘，不依赖 drawable 资源） */
-    private static LinearLayout card(Activity a, String label, int iconKind, boolean selected,
-                                     int cardColor, int fg, int sub, int accent,
-                                     View.OnClickListener onClick) {
+    private LinearLayout tile(String label, int iconKind, boolean selected, View.OnClickListener onClick) {
         LinearLayout box = new LinearLayout(a);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setClickable(true);
         box.setFocusable(true);
+        box.setBackground(ripple(dp(20)));
 
-        FrameLayout tile = new FrameLayout(a);
+        FrameLayout frame = new FrameLayout(a);
         GradientDrawable tb = new GradientDrawable();
-        tb.setColor(cardColor);
-        tb.setCornerRadius(dp(a, 18));
-        if (selected) tb.setStroke(dp(a, 2), accent);
-        tile.setBackground(tb);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(dp(a, 72), dp(a, 72));
-        tile.setLayoutParams(tlp);
+        tb.setColor(fill);
+        tb.setCornerRadius(dp(18));
+        if (selected) tb.setStroke(dp(2), accent);
+        frame.setBackground(tb);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(dp(72), dp(72));
+        frame.setLayoutParams(tlp);
 
         IconView iv = new IconView(a, iconKind, fg);
-        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(a, 32), dp(a, 32));
+        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(32), dp(32));
         ilp.gravity = Gravity.CENTER;
-        tile.addView(iv, ilp);
-        box.addView(tile);
+        frame.addView(iv, ilp);
+        box.addView(frame);
 
         TextView tv = new TextView(a);
         tv.setText(label);
@@ -346,71 +414,108 @@ final class ThemeSheet {
         tv.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(a, 8);
+        lp.topMargin = dp(8);
         box.addView(tv, lp);
 
         box.setOnClickListener(onClick);
         return box;
     }
 
-    private static TextView chip(Activity a, String text, boolean on,
-                                 int cardColor, int fg, int accent) {
+    private TextView chip(String text, boolean on) {
         TextView tv = new TextView(a);
         tv.setText(text);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         tv.setGravity(Gravity.CENTER);
         GradientDrawable g = new GradientDrawable();
-        g.setColor(on ? (accent & 0x00FFFFFF) | 0x22000000 : cardColor);
-        g.setCornerRadius(dp(a, 17));
-        if (on) g.setStroke(dp(a, 2), accent);
+        g.setColor(on ? withAlpha(accent, 0x26) : fill);
+        g.setCornerRadius(dp(17));
+        if (on) g.setStroke(dp(2), accent);
         tv.setBackground(g);
         tv.setTextColor(on ? accent : fg);
         return tv;
     }
 
-    // ── 工具 ──────────────────────────────────────────────────────────────
-
-    private static boolean isNight(Context c) {
-        return (c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
+    /** 宿主 listChoiceBackgroundIndicator 的点击反馈（拿不到就用透明） */
+    private android.graphics.drawable.Drawable ripple(int radius) {
+        try {
+            int id = a.getResources().getIdentifier("listChoiceBackgroundIndicator", "attr", "android");
+            TypedValue tv = new TypedValue();
+            if (id != 0 && a.getTheme().resolveAttribute(id, tv, true) && tv.resourceId != 0) {
+                return a.getDrawable(tv.resourceId);
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
-    /** 宿主强调色（取不到就用固定蓝） */
-    private static int accentColor(Context c) {
+    // ── token ────────────────────────────────────────────────────────────────
+
+    private void resolveTokens() {
+        fg = attrColor("couiColorLabelPrimary", night ? 0xFFF0F1F3 : 0xFF1A1A1A);
+        sub = attrColor("couiColorLabelSecondary", night ? 0xFF9AA0AB : 0xFF808690);
+        accent = attrColor("couiColorPrimary", accentFallback());
+        fill = attrColor("couiColorFillThin", night ? 0x1AFFFFFF : 0x0F000000);
+        if (((fill >>> 24) & 0xFF) > 0x40) fill = withAlpha(fill, 0x14);   // 不要把 token 当实心块
+        hint = sub;
+    }
+
+    private int attrColor(String name, int def) {
+        try {
+            int id = a.getResources().getIdentifier(name, "attr", a.getPackageName());
+            if (id != 0) {
+                TypedValue tv = new TypedValue();
+                if (a.getTheme().resolveAttribute(id, tv, true)
+                        && tv.type >= TypedValue.TYPE_FIRST_COLOR_INT
+                        && tv.type <= TypedValue.TYPE_LAST_COLOR_INT) {
+                    int col = tv.data;
+                    if (((col >>> 24) & 0xFF) == 0) col |= 0xFF000000;
+                    return col;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return def;
+    }
+
+    private int accentFallback() {
         try {
             TypedValue tv = new TypedValue();
-            if (c.getTheme().resolveAttribute(android.R.attr.colorAccent, tv, true)) {
-                int col = tv.data;
-                int a = (col >>> 24) & 0xFF;
-                if (a < 200) col |= 0xFF000000;
-                // 太亮/太暗都回落，保证可见
+            if (a.getTheme().resolveAttribute(android.R.attr.colorAccent, tv, true)) {
+                int col = tv.data | 0xFF000000;
                 int lum = ((col >> 16 & 0xFF) * 299 + (col >> 8 & 0xFF) * 587 + (col & 0xFF) * 114) / 1000;
-                if (lum < 40 || lum > 230) return 0xFF3A7AFF;
-                return col;
+                if (lum > 40 && lum < 230) return col;
             }
         } catch (Throwable ignored) {
         }
         return 0xFF3A7AFF;
     }
 
-    private static int dp(Context c, int v) {
-        return Math.round(v * c.getResources().getDisplayMetrics().density);
+    private static int withAlpha(int color, int a) {
+        return ((a & 0xFF) << 24) | (color & 0x00FFFFFF);
     }
 
-    private static int navBar(Context c) {
+    private static boolean isNight(Context c) {
+        return (c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private static void quiet(Object target, String name, Object... args) {
         try {
-            int id = c.getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-            if (id > 0) return c.getResources().getDimensionPixelSize(id);
+            Ref.callName(target, name, args);
         } catch (Throwable ignored) {
         }
-        return dp(c, 16);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * a.getResources().getDisplayMetrics().density);
     }
 
     /** 卡片图标：0 无 / 1 纯色 / 2 渐变 / 3 图片，全部 Canvas 画 */
     private static final class IconView extends View {
         private final int kind;
         private final int ink;
-        private final android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint p =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.RectF r = new android.graphics.RectF();
 
         IconView(Context c, int kind, int ink) {

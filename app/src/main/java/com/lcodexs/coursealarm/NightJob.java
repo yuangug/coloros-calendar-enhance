@@ -10,8 +10,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 真正的活：查明天上午的课 -> 清掉旧的「课程闹钟」-> 逐个在时钟里建一次性闹钟 -> 发通知。
+ * 真正的活：查明天上午**最早一节课** -> 清掉旧的「课程闹钟」-> 在时钟里建**一个**一次性闹钟 -> 发通知。
  * 日历进程里跑（数据/权限/通知都在这个进程）。
+ *
+ * 「一天只叫一次」：CourseRepo 已经在数据层收敛成最多一个 Slot（1-2 节与 3-4 节都有课时只留 1-2 节），
+ * 这里即便拿到多个也只按最早的那个建，绝不建第二个。
  */
 final class NightJob {
     private static final String T = CourseAlarmEntry.TAG;
@@ -58,7 +61,7 @@ final class NightJob {
         }
 
         List<CourseRepo.Slot> slots = CourseRepo.morningSlots(ctx, dayOffset);
-        Logx.i(T, "day+" + dayOffset + " morning slots=" + slots.size());
+        Logx.i(T, "day+" + dayOffset + " morning slots=" + slots.size() + "（一天只设一个闹钟）");
         for (CourseRepo.Slot s : slots) {
             int[] a = CourseRepo.alarmTimeFor(s, Prefs.offset());
             Logx.i(T, "  slot 课 " + s.describe() + " → 闹钟 "
@@ -75,23 +78,26 @@ final class NightJob {
             return;
         }
 
+        // 双保险：即使上游给了多条（旧数据/未来改动），也只按最早的那节建一个
+        CourseRepo.Slot first = slots.get(0);
+        for (CourseRepo.Slot s : slots) {
+            if (s.hour * 60 + s.minute < first.hour * 60 + first.minute) first = s;
+        }
+
         int created = 0;
         StringBuilder verify = new StringBuilder();
-        for (CourseRepo.Slot s : slots) {
-            int[] a = CourseRepo.alarmTimeFor(s, Prefs.offset());
-            long id = AlarmBridge.addOnce(ctx, a[0], a[1], s.label(), Prefs.silent());
-            if (id > 0) {
-                created++;
-                AlarmBridge.tune(ctx, id, Prefs.vibrate(), Prefs.silent());
-                String line = AlarmBridge.inspect(ctx, id);
-                Logx.i(T, "verify " + line);
-                if (verify.length() > 0) verify.append(" | ");
-                verify.append(line);
-            }
+        int[] a = CourseRepo.alarmTimeFor(first, Prefs.offset());
+        long id = AlarmBridge.addOnce(ctx, a[0], a[1], first.label(), Prefs.silent());
+        if (id > 0) {
+            created++;
+            AlarmBridge.tune(ctx, id, Prefs.vibrate(), Prefs.silent());
+            String line = AlarmBridge.inspect(ctx, id);
+            Logx.i(T, "verify " + line);
+            verify.append(line);
         }
         Prefs.setLastResult(String.format(Locale.US, "%s 建 %d 个，删旧 %d 个",
                 new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date()), created, removed));
-        Notifier.postResult(ctx, slots, created);
+        Notifier.postResult(ctx, java.util.Collections.singletonList(first), created);
         Logx.i(T, "==== night job end: created=" + created + " removed=" + removed
                 + " verify=" + verify);
     }

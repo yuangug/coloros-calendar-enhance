@@ -47,12 +47,22 @@ final class CurriculumIo {
 
     // ── 导出 ────────────────────────────────────────────────────────────────
 
+    /**
+     * 动作选择面板统一入口：**优先用宿主 COUI 底部面板**（和「创建课表」sheet 同一个容器、
+     * 同一批颜色/字号/关闭图标），宿主控件取不到时才回落到模块自绘的 PickerSheet。
+     */
+    private static void options(Activity a, String title, List<String> opts,
+                               PickerSheet.OnPick<Integer> cb) {
+        if (HostSheet.show(a, title, opts, cb::onPick)) return;
+        PickerSheet.show(a, title, opts, -1, cb);
+    }
+
     static void showExportMenu(Activity a) {
         if (a == null) return;
         List<String> opts = new ArrayList<>();
         opts.add("导出为 Excel（.xlsx）");
         opts.add("导出为 ICS 日历（.ics）");
-        PickerSheet.show(a, "导出课表", opts, -1, idx -> {
+        options(a, "导出课表", opts, idx -> {
             if (idx == 0) exportXlsx(a);
             else exportIcs(a);
         });
@@ -108,7 +118,7 @@ final class CurriculumIo {
         opts.add("从文件导入（选 .ics / .xlsx）");
         opts.add("从「下载」目录直接选（推荐）");
         opts.add("粘贴课表 HTML / 表单直连（高级）");
-        PickerSheet.show(a, "导入课表", opts, -1, idx -> {
+        options(a, "导入课表", opts, idx -> {
             if (idx == 2) { pickFromDownloads(a); return; }
             // 用 */* + EXTRA_MIME_TYPES：不少文件管理器会把 .ics 归到「其他」，
             // 只给 text/calendar 时会显示"无文件"（实测 OPPO 文件选择器如此）。
@@ -185,31 +195,10 @@ final class CurriculumIo {
                 List<Course> list = parseBytes(readFile(f), f.getName(), null, t);
                 Logx.i(T, "importAndWrite " + f.getName() + " parsed=" + list.size()
                         + " replace=" + replace + " (icsHint=" + ics + ")");
-                for (Course c : list) {
-                    c.endNode = Math.max(c.startNode, Math.min(c.endNode, t.nodeCount() - 1));
-                    if (c.weeks.isEmpty()) for (int w = 1; w <= t.weekCount; w++) c.weeks.set(w);
-                }
-                if (replace) CourseWriter.clearAll(ctx, t);
-                if (newTable) {
-                    String nm = "课程表 " + (t.courseCalIds.size() + 1);
-                    // 先走宿主自己的建表 API（写 CalendarEntity + events，课表管理里能看到）
-                    String err = HostTableCreator.createWithCourses(ctx, t, list, nm);
-                    if (err.isEmpty()) {
-                        Logx.i(T, "importAndWrite NEW table via host api ok: " + nm + " n=" + list.size());
-                        if (done != null) UI.post(done);
-                        return;   // 宿主已经写完，不能再 insert 一次
-                    }
-                    Logx.w(T, "host create table failed (" + err + "), fallback to cloned calendar");
-                    long nid = CourseWriter.createCalendar(ctx, t, nm);
-                    if (nid > 0) {
-                        t = t.copyWithCalendar(nid);
-                        Logx.i(T, "importAndWrite into cloned calendar id=" + nid + " name=" + nm);
-                    } else {
-                        Logx.w(T, "importAndWrite new table failed, writing into current");
-                    }
-                }
-                int n = CourseWriter.insert(ctx, t, list);
-                Logx.i(T, "importAndWrite wrote " + n + "/" + list.size());
+                CourseMutations.importCourses(ctx, t, list,
+                        newTable ? CourseMutations.Mode.NEW_TABLE : replace ? CourseMutations.Mode.REPLACE : CourseMutations.Mode.APPEND,
+                        "课程表 " + (t.courseCalIds.size() + 1), result -> { if (done != null) done.run(); });
+                return;
             } catch (Throwable e) {
                 Logx.e(T, "importAndWrite failed", e);
             }
@@ -319,11 +308,10 @@ final class CurriculumIo {
                     toast(a, "「下载」里没有 .ics / .xlsx —— 可以先从别处把文件存到下载目录");
                     return;
                 }
-                PickerSheet.show(a, "选择「下载」里的课表文件", fNames, -1, idx -> {
+                options(a, "选择「下载」里的课表文件", fNames, idx -> {
                     if (idx < 0 || idx >= fUris.size()) return;
                     importFromUri(a, fUris.get(idx), fNames.get(idx));
-                });
-            });
+                });            });
         }, "lspx-list-downloads").start();
     }
 
@@ -375,7 +363,7 @@ final class CurriculumIo {
                     List<String> opts = new ArrayList<>();
                     opts.add("重新抓取这一页");
                     opts.add("粘贴课表 HTML（高级）");
-                    PickerSheet.show(a, "没解析出课程\n" + diag, opts, -1, idx -> {
+                    options(a, "没解析出课程\n" + diag, opts, idx -> {
                         if (idx == 0) importFromJwWeb(a);
                         else importFromJw(a);
                     });
@@ -457,58 +445,27 @@ final class CurriculumIo {
         opts.add("替换现有课表（" + list.size() + " 门）");
         opts.add("追加到现有课表（" + list.size() + " 门）");
         opts.add("新建一张课表后导入（" + list.size() + " 门）");
-        PickerSheet.show(a, "导入 " + list.size() + " 门课 · " + source, opts, -1, idx -> {
-            new Thread(() -> {
-                try {
-                    TableCtx t = TableCtx.load(a);
-                    if (idx == 0) CourseWriter.clearAll(a, t);
-                    if (idx == 2) {
-                        // 新建课表：三条路，逐级退让，**绝不静默写进当前表**
-                        //   A 反射 CreateCourseTableViewModel.saveCoursesAndTable（宿主自己的建表 API）
-                        //   B 用宿主自己的建表页 + course_bundle 预置课程（用户在宿主 UI 点一次保存）
-                        //   C 只打开空的建表页
-                        UI.post(() -> {
-                            String name = "课程表 " + (t.courseCalIds.size() + 1);
-                            String err = HostTableCreator.createWithCourses(a, t, list, name);
-                            if (err.isEmpty()) {
-                                toast(a, "已新建「" + name + "」并导入 " + list.size()
-                                        + " 门课 —— 到「课表管理」里可切到新表");
-                                refresh(a);
-                                return;
-                            }
-                            Logx.w(T, "saveCoursesAndTable 不可用（" + err + "），改走宿主建表页");
-                            String err2 = HostTableCreator.openImportActivity(a, t, list, name);
-                            if (err2.isEmpty()) return;
-                            Logx.w(T, "openImportActivity 也失败（" + err2 + "），只能打开空建表页");
-                            HostTableCreator.openBlankCreateTable(a);
-                            toast(a, "打不开宿主的建表页：先在宿主里手动「创建课表」，再回来选「替换现有课表」");
-                        });
-                        return;
-                    }
-                    for (Course c : list) {
-                        if (c.startNode < 0) c.startNode = 0;
-                        c.endNode = Math.max(c.startNode, Math.min(c.endNode, t.nodeCount() - 1));
-                        if (c.weeks.isEmpty()) for (int w = 1; w <= t.weekCount; w++) c.weeks.set(w);
-                    }
-                    int n = CourseWriter.insert(a, t, list);
-                    Logx.i(T, "import wrote " + n + "/" + list.size() + " (" + (idx == 0 ? "replace" : "append") + ")");
-                    UI.post(() -> {
-                        toast(a, "已写入 " + n + " 门课");
-                        refresh(a);
-                    });
-                } catch (Throwable e) {
-                    Logx.e(T, "write failed", e);
-                    UI.post(() -> toast(a, "写入失败：" + e));
-                }
-            }, "lspx-write").start();
-        });
+        new Thread(() -> {
+            TableCtx frozen = TableCtx.load(a);
+            UI.post(() -> options(a, "导入 " + list.size() + " 门课 · " + source + " → " + frozen.tableName, opts, idx -> {
+                CourseMutations.Mode mode = idx == 0 ? CourseMutations.Mode.REPLACE
+                        : idx == 1 ? CourseMutations.Mode.APPEND : CourseMutations.Mode.NEW_TABLE;
+                CourseMutations.importCourses(a, frozen, list, mode, "课程表 " + (frozen.courseCalIds.size() + 1), null);
+            }));
+        }, "course-import-preview").start();
     }
 
-    /** 写完让课表刷新：先靠 provider 通知，再兜底重建页面 */
+    /**
+     * 写完让课表刷新 —— **不 recreate Activity**（那会把用户从课表页顶回日历页，
+     * 看着就像"导入没生效"）。改为：
+     *   ① notifyChange 标准 + ColorOS 两个 authority（宿主的 ContentObserver 监听后者）
+     *   ② 宿主进程内 LiveDataBus 发 refresh_course_table / db_change_*（宿主课表页立刻重读库）
+     *   ③ 主页里模块挂的课表层重读一遍
+     */
     static void refresh(Activity a) {
         try {
-            a.recreate();
-            Logx.i(T, "activity recreate for refresh");
+            HostBus.afterWrite(a);
+            Logx.i(T, "refresh: notifyChange + bus + HostTablePage.refresh 已发出");
         } catch (Throwable t) {
             Logx.w(T, "refresh failed: " + t);
         }

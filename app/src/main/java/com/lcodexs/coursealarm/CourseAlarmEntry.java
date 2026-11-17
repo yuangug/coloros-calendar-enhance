@@ -52,7 +52,7 @@ public final class CourseAlarmEntry extends XposedModule {
                         Object arg = chain.getArg(0);
                         if (arg instanceof Context) {
                             try {
-                                onAttached((Context) arg);
+                                onAttached((Context) chain.getThisObject());
                             } catch (Throwable t) {
                                 Logx.e(TAG, "onAttached failed", t);
                             }

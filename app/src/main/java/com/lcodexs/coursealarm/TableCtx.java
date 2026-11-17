@@ -44,6 +44,15 @@ final class TableCtx {
     private static final int[] DEFAULT_END = {535, 590, 655, 710, 895, 950, 1016, 1071, 1185, 1240};
 
     long calendarId = -1;
+    String tableJson;
+    String tableName = "";
+    boolean hasReminder;
+    int reminderMinutes = 15;
+    private boolean nativeTiming;
+    /** 当前表是从宿主 prefs 读出来的（= 用户屏幕上正在看的表）；此时任何"猜"都不许覆盖它 */
+    boolean calendarFromPrefs;
+    /** Calendars 表里出现过的所有 id（校验 prefs 里的当前表是否还存在） */
+    final Set<Long> allCalIds = new LinkedHashSet<>();
     int weekCount = 18;
     long termBeginMs;
     int[] periodStart = DEFAULT_START.clone();
@@ -108,6 +117,7 @@ final class TableCtx {
         t.hostCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
         ContentResolver cr = ctx.getContentResolver();
         t.resolveCalendar(cr);
+        t.readTableMetadata(cr);
         t.readCourses(cr);
         t.deriveTiming();
         Logx.i(T, "TableCtx " + t.dump());
@@ -123,13 +133,15 @@ final class TableCtx {
                     new String[]{CalendarContract.Calendars._ID,
                             CalendarContract.Calendars.ACCOUNT_NAME,
                             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
-                            CalendarContract.Calendars.VISIBLE},
+                            CalendarContract.Calendars.VISIBLE,"deleted"},
                     null, null, null);
             if (c != null) {
                 while (c.moveToNext()) {
                     long id = c.getLong(0);
                     String acc = c.getString(1);
                     String nm = c.getString(2);
+                    if(c.getInt(4)!=0)continue;
+                    allCalIds.add(id);
                     boolean course = (acc != null && (acc.contains("course") || acc.contains("kebiao")))
                             || (nm != null && nm.contains("课程表"));
                     if (course) {
@@ -145,22 +157,75 @@ final class TableCtx {
         } finally {
             if (c != null) try { c.close(); } catch (Throwable ignored) { }
         }
-        if (courseCalIds.isEmpty()) courseCalIds.add(7L);
-        if (calendarId < 0) calendarId = courseCalIds.iterator().next();
+        calendarId = -1;
 
         // 最关键的一步：**以宿主自己记的"当前课表"为准**。
-        // 它存在 com.coloros.calendar_preferences 的 sp_key_current_course_table 里（实测 =12）。
+        // 它存在 com.coloros.calendar_preferences 的 sp_key_current_course_table 里（实测 =8）。
         // 不读它就会出现「界面显示 A 表、我们写进 B 表」→ 用户看到导入没反应（实测踩到）。
         long current = hostCurrentTableId(hostCtx);
-        if (current > 0) {
-            if (!courseCalIds.contains(current)) courseCalIds.add(current);
+        if (current > 0 && courseCalIds.contains(current)) {
             calendarId = current;
-            Logx.i(T, "current table from host prefs = " + current);
+            calendarFromPrefs = true;
+            Logx.i(T, "current table from host prefs = " + current
+                    + "（后续任何以「课程最多」为依据的重选都不许覆盖它）");
+        } else if (current <= 0 && courseCalIds.size() == 1) {
+            calendarId = courseCalIds.iterator().next();
+        } else {
+            Logx.w(T, "当前课表不可确定，不读取其他课表: " + current);
+        }
+    }
+
+    private void readTableMetadata(ContentResolver cr) {
+        if (calendarId <= 0) return;
+        try (Cursor c = cr.query(CalendarContract.Calendars.CONTENT_URI,
+                new String[]{"_id", "calendar_displayName", "calendars_json_extensions"},
+                null, null, null)) {
+            if (c == null) return;
+            while (c.moveToNext()) {
+                if (c.getLong(0) != calendarId) continue;
+                tableName = c.getString(1);
+                tableJson = c.getString(2);
+                JSONObject o = new JSONObject(tableJson);
+                termBeginMs = o.optLong("termBeginTime", 0);
+                weekCount = Math.max(1, o.optInt("weekNumberOfThisTerm", 18));
+                hasReminder = o.optBoolean("hasReminder", false);
+                int minutes = o.optInt("reminderTime", 15);
+                reminderMinutes = minutes >= 5 && minutes <= 60 && minutes % 5 == 0 ? minutes : 15;
+                JSONObject times = o.optJSONObject("courseTableTime");
+                if (times == null) return;
+                List<Integer> starts = new ArrayList<>(), ends = new ArrayList<>();
+                for (String key : new String[]{"morningCoursesList", "afternoontCoursesList", "nightCoursesList"}) {
+                    JSONArray items = times.optJSONArray(key);
+                    if (items == null) return;
+                    for (int i = 0; i < items.length(); i++) {
+                        JSONObject item = items.getJSONObject(i);
+                        int start = minuteOfDay(item.getLong("startTime"));
+                        int end = minuteOfDay(item.getLong("endTime"));
+                        if (start < 0 || end <= start || end > 1440) return;
+                        starts.add(start); ends.add(end);
+                    }
+                }
+                if (starts.isEmpty()) return;
+                periodStart = new int[starts.size()]; periodEnd = new int[ends.size()];
+                for (int i = 0; i < starts.size(); i++) {
+                    periodStart[i] = starts.get(i); periodEnd[i] = ends.get(i);
+                }
+                nativeTiming = termBeginMs > 0;
+                return;
+            }
+        } catch (Exception e) {
+            Logx.w(T, "课表配置读取失败: " + e);
         }
     }
 
     /** 宿主 prefs 里的"当前课表"id；读不到返回 -1 */
-    private static long hostCurrentTableId(Context ctx) {
+    static int minuteOfDay(long value) {
+        if (value >= 0 && value <= 86400000L) return (int)(value / 60000L);
+        Calendar time = Calendar.getInstance(); time.setTimeInMillis(value);
+        return time.get(Calendar.HOUR_OF_DAY) * 60 + time.get(Calendar.MINUTE);
+    }
+
+    static long hostCurrentTableId(Context ctx) {
         if (ctx == null) return -1;
         String[] names = {"com.coloros.calendar_preferences", "com.coloros.calendar_preference"};
         for (String n : names) {
@@ -180,12 +245,13 @@ final class TableCtx {
      * 而不过滤时同样能拿到全部课程。改为在内存里按 calendar_id / 扩展属性筛。
      */
     private void readCourses(ContentResolver cr) {
+        if (calendarId <= 0) return;
         Cursor c = null;
         java.util.LinkedHashMap<Long, Integer> perCal = new java.util.LinkedHashMap<>();
         try {
             c = cr.query(EVENTS_URI, new String[]{
                     "_id", "calendar_id", "title", "dtstart", "duration", "rrule",
-                    "events_json_extensions", "hasExtendedProperties"}, null, null, null);
+                    "events_json_extensions", "hasExtendedProperties", "deleted"}, null, null, null);
             if (c == null) {
                 Logx.w(T, "readCourses: null cursor");
                 return;
@@ -194,10 +260,11 @@ final class TableCtx {
             while (c.moveToNext()) {
                 total++;
                 long calId = c.getLong(1);
+                if (calId != calendarId || c.getInt(8) != 0) continue;
                 int ext = c.getInt(7);
                 String json = c.getString(6);
                 if (json == null || json.isEmpty()) continue;
-                if (ext != CourseWriter.COURSE_EXT_PROP && !courseCalIds.contains(calId)) continue;
+                if (ext != CourseWriter.COURSE_EXT_PROP) continue;
                 Course co = parseCourse(json);
                 if (co == null || co.name.isEmpty()) continue;
                 co.dtstart = c.getLong(3);
@@ -208,14 +275,6 @@ final class TableCtx {
             }
             Logx.i(T, "readCourses total=" + total + " courses=" + courses.size()
                     + " perCalendar=" + perCal);
-            if (!perCal.isEmpty()) {
-                long best = calendarId;
-                int bestN = -1;
-                for (Map.Entry<Long, Integer> e : perCal.entrySet()) {
-                    if (e.getValue() > bestN) { bestN = e.getValue(); best = e.getKey(); }
-                }
-                calendarId = best;
-            }
         } catch (Throwable e) {
             Logx.w(T, "readCourses failed: " + e);
         } finally {
@@ -252,8 +311,9 @@ final class TableCtx {
      * 一条课程 = 首周 day 的第 startNode 节开始，持续到 endNode 结束。
      */
     private void deriveTiming() {
+        if (nativeTiming) return;
         if (courses.isEmpty()) {
-            termBeginMs = mondayOfCurrentWeek();
+            if (termBeginMs <= 0) termBeginMs = mondayOfCurrentWeek();
             return;
         }
         int[] st = new int[periodStart.length];
@@ -272,8 +332,8 @@ final class TableCtx {
             int minute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
             int s = co.startNode, e = co.endNode;
             if (s >= 0 && s < st.length && st[s] <= 0) st[s] = minute;
-            if (e >= 0 && e < en.length && en[e] <= 0) {
-                en[e] = minute + Math.max(co.durationSec, 5400) / 60;
+            if (e >= 0 && e < en.length && en[e] <= 0 && co.durationSec > 0) {
+                en[e] = minute + co.durationSec / 60;
             }
 
             long daySize = 86400000L;
@@ -295,7 +355,7 @@ final class TableCtx {
             if (periodEnd[i] <= periodStart[i]) periodEnd[i] = periodStart[i] + 45;
         }
 
-        termBeginMs = mode(termCandidates);
+        if (termBeginMs <= 0) termBeginMs = mode(termCandidates);
         if (termBeginMs <= 0) termBeginMs = mondayOfCurrentWeek();
         weekCount = Math.max(maxWeek, 18);
         Logx.i(T, "deriveTiming term=" + CourseRepo.fmt(termBeginMs)
@@ -315,34 +375,27 @@ final class TableCtx {
         return best;
     }
 
-    private static int parseDuration(String d) {
-        if (d == null) return 0;
-        // P6000S / PT1H40M / P0DT1H40M
-        try {
-            int total = 0;
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("P(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)?").matcher(d);
-            if (m.find()) {
-                if (m.group(1) != null) total += Integer.parseInt(m.group(1)) * 86400;
-                if (m.group(2) != null) total += Integer.parseInt(m.group(2)) * 3600;
-                if (m.group(3) != null) total += Integer.parseInt(m.group(3)) * 60;
-                if (m.group(4) != null) total += Integer.parseInt(m.group(4));
-            }
-            return total;
-        } catch (Throwable t) {
-            return 0;
-        }
+    static int parseDuration(String d) {
+        return CourseDuration.parseSeconds(d);
     }
 
     /** 复制一份只改开学基准的上下文（导入空表时用 ICS 里最早的课当第1周锚点） */
     TableCtx copyWithTerm(long termBegin) {
         TableCtx c = new TableCtx();
         c.calendarId = this.calendarId;
+        c.calendarFromPrefs = this.calendarFromPrefs;
+        c.tableJson = this.tableJson;
+        c.tableName = this.tableName;
+        c.hasReminder = this.hasReminder;
+        c.reminderMinutes = this.reminderMinutes;
+        c.nativeTiming = this.nativeTiming;
+        c.hostCtx = this.hostCtx;
         c.weekCount = this.weekCount;
         c.termBeginMs = termBegin;
         c.periodStart = this.periodStart.clone();
         c.periodEnd = this.periodEnd.clone();
         c.courseCalIds.addAll(this.courseCalIds);
+        c.allCalIds.addAll(this.allCalIds);
         return c;
     }
 
@@ -350,6 +403,7 @@ final class TableCtx {
     TableCtx copyWithCalendar(long calId) {
         TableCtx c = copyWithTerm(this.termBeginMs);
         c.calendarId = calId;
+        c.calendarFromPrefs = false;    // 指向新表，与 prefs 无关
         c.courseCalIds.clear();
         c.courseCalIds.add(calId);
         return c;

@@ -364,7 +364,7 @@ final class NewBar {
         Logx.i(T, "new bar: " + (start ? "左" : "右") + "附件图标已还原");
     }
 
-    private static Drawable accessoryIcon(Object bar, boolean start) {
+    static Drawable accessoryIcon(Object bar, boolean start) {
         Object view = Ref.call(bar, Ref.methodOf(bar.getClass(),
                 start ? "getStartAccessoryView" : "getEndAccessoryView"));
         Object d = view == null ? null : Ref.callAny(view, "getIconDrawable");

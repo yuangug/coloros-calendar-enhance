@@ -74,12 +74,19 @@ final class CourseRepo {
         return c.getTimeInMillis();
     }
 
-    /** 明天的上午课程 -> 去重后的「上课时刻」列表（每个时刻一个闹钟） */
+    /**
+     * 明天上午的**最早一节课**（0 或 1 个元素，一天最多一个闹钟）。
+     *
+     * 语义（产品定义）：一天只叫一次。
+     *   1-2 节有课            → 那一个时刻
+     *   只有 3-4 节有课        → 3-4 节的时刻
+     *   1-2 和 3-4 节都有课    → **只取 1-2 节**，不再为 3-4 节建第二个闹钟
+     */
     static List<Slot> tomorrowMorningSlots(Context ctx) {
         return morningSlots(ctx, 1);
     }
 
-    /** 第 dayOffset 天的上午课程 */
+    /** 第 dayOffset 天的上午最早一节课（同样最多一个） */
     static List<Slot> morningSlots(Context ctx, int dayOffset) {
         long dayStart = dayStart(dayOffset);
         return morningSlots(ctx, dayStart, dayStart + 24L * 3600 * 1000);
@@ -88,7 +95,10 @@ final class CourseRepo {
     private static List<Slot> morningSlots(Context ctx, long begin, long end) {
         List<Slot> out = new ArrayList<>();
         ContentResolver cr = ctx.getContentResolver();
-        Set<Long> courseCalIds = courseCalendarIds(cr);
+        TableCtx table = TableCtx.load(ctx);
+        Set<Long> courseCalIds = new LinkedHashSet<>();
+        if (table.calendarId <= 0) return out;
+        courseCalIds.add(table.calendarId);
         Logx.i(T, "query instances " + fmt(begin) + " .. " + fmt(end)
                 + " courseCalendars=" + courseCalIds);
 
@@ -119,7 +129,7 @@ final class CourseRepo {
                 long calId = c.getLong(4);
                 int allDay = c.getInt(5);
                 if (allDay != 0) continue;
-                if (!courseCalIds.isEmpty() && !courseCalIds.contains(calId)) continue;
+                if (!courseCalIds.contains(calId)) continue;
 
                 long startMillis = c.getLong(0);
                 Calendar cal = Calendar.getInstance();
@@ -136,7 +146,7 @@ final class CourseRepo {
                 s.minute = m;
                 s.title = c.getString(2);
                 s.location = c.getString(3);
-                s.periodFirst = periodOf(h, m);
+                s.periodFirst = table.nodeByStartMinute(h * 60 + m) + 1;
                 uniq.put(key, s);
             }
             Logx.i(T, "instances total=" + total + " morning=" + uniq.size());
@@ -147,7 +157,39 @@ final class CourseRepo {
         }
 
         out.addAll(uniq.values());
-        return out;
+        return pickEarliest(out);
+    }
+
+    /**
+     * 一天只留一个：取开始时刻最早的那节。
+     *
+     * 不依赖 provider 的 ORDER BY —— 显式比 hour*60+minute，排序被忽略时结果也一样。
+     * 1-2 节（08:10）与 3-4 节（10:10）都命中时，留下 08:10，10:10 记一条 skip 日志。
+     */
+    private static List<Slot> pickEarliest(List<Slot> all) {
+        if (all.size() <= 1) {
+            if (!all.isEmpty()) {
+                Slot s = all.get(0);
+                Logx.i(T, "pick earliest = " + String.format(Locale.US, "%02d:%02d", s.hour, s.minute)
+                        + " (仅一节)");
+            }
+            return all;
+        }
+        Slot best = all.get(0);
+        for (Slot s : all) {
+            if (s.hour * 60 + s.minute < best.hour * 60 + best.minute) best = s;
+        }
+        StringBuilder skipped = new StringBuilder();
+        for (Slot s : all) {
+            if (s == best) continue;
+            if (skipped.length() > 0) skipped.append(',');
+            skipped.append(String.format(Locale.US, "%02d:%02d", s.hour, s.minute));
+        }
+        List<Slot> one = new ArrayList<>(1);
+        one.add(best);
+        Logx.i(T, "pick earliest = " + String.format(Locale.US, "%02d:%02d", best.hour, best.minute)
+                + "，跳过 " + skipped + "（一天只设一个闹钟）");
+        return one;
     }
 
     /** 课程表日历 id：account_name 含 course，或日历名是「课程表」 */

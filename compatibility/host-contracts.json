@@ -1,0 +1,3173 @@
+{
+  "schema": 1,
+  "description": "Required host interfaces used by CourseAlarm. Obfuscated semantic entry points are resolved and checked separately by HostCompat.",
+  "contracts": [
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.android.calendar.AllInOneActivity"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.android.calendar.AllInOneActivity",
+      "name": "onResume",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.android.calendar.AllInOneActivity",
+      "name": "onActivityResult",
+      "descriptor": "(IILandroid/content/Intent;)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity",
+      "name": "onDeleteCourse",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "androidx.viewpager2.widget.ViewPager2"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "getCurrentItem",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "setAdapter",
+      "descriptor": "(Landroidx/recyclerview/widget/RecyclerView$Adapter;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "setOrientation",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "setOffscreenPageLimit",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.viewpager2.widget.ViewPager2",
+      "name": "m",
+      "descriptor": "(IZ)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "addItems",
+      "descriptor": "(Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setOnStartAccessoryClickListener",
+      "descriptor": "(Lcom/coui/appcompat/bottomfloatingaccessorynavigationbar/COUIBottomFloatingAccessoryNavigationBar$OnAccessoryClickListener;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setOnEndAccessoryClickListener",
+      "descriptor": "(Lcom/coui/appcompat/bottomfloatingaccessorynavigationbar/COUIBottomFloatingAccessoryNavigationBar$OnAccessoryClickListener;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setSelectedItemId",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setStartAccessoryDrawable",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setStartAccessoryDrawable",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;Z)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setEndAccessoryDrawable",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "setEndAccessoryDrawable",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;Z)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "getStartAccessoryView",
+      "descriptor": "()Lcom/coui/appcompat/bottomfloatingaccessorynavigationbar/COUIBottomFloatingAccessoryView;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar",
+      "name": "getEndAccessoryView",
+      "descriptor": "()Lcom/coui/appcompat/bottomfloatingaccessorynavigationbar/COUIBottomFloatingAccessoryView;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar$OnAccessoryClickListener"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingaccessorynavigationbar.COUIBottomFloatingAccessoryNavigationBar$OnAccessoryClickListener",
+      "name": "onAccessoryClick",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "setId",
+      "descriptor": "(I)Lcom/coui/appcompat/bottomfloatingnavigationbar/BaseBottomFloatingItem$BaseBuilder;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/String;)Lcom/coui/appcompat/bottomfloatingnavigationbar/BaseBottomFloatingItem$BaseBuilder;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "setIcon",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;)Lcom/coui/appcompat/bottomfloatingnavigationbar/BaseBottomFloatingItem$BaseBuilder;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "build",
+      "descriptor": "()Lcom/coui/appcompat/bottomfloatingnavigationbar/BaseBottomFloatingItem;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem$Builder",
+      "name": "build",
+      "descriptor": "()Lcom/coui/appcompat/bottomfloatingnavigationbar/COUIBottomFloatingNavigationBarItem;",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarItem"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingItem",
+      "name": "getId",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "inflateMenu",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "getMenu",
+      "descriptor": "()Landroid/view/Menu;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "class",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow"
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "setItemList",
+      "descriptor": "(Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "setItemList",
+      "descriptor": "(Ljava/util/List;Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "setOnItemClickListener",
+      "descriptor": "(Landroid/widget/AdapterView$OnItemClickListener;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "show",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "show",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "show",
+      "descriptor": "(Landroid/view/View;II)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "show",
+      "descriptor": "(Landroid/view/View;Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "show",
+      "descriptor": "(Landroid/view/View;ZII)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "dismiss",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "class",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder"
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/String;)Lcom/coui/appcompat/poplist/PopupListItem$Builder;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder",
+      "name": "build",
+      "descriptor": "()Lcom/coui/appcompat/poplist/PopupListItem;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "class",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog"
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;I)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;IFF)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;ZLandroid/content/DialogInterface$OnCancelListener;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setContentView",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setContentView",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setBackgroundBlur",
+      "descriptor": "(ZLcom/coui/appcompat/uiutil/AnimLevel;Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setBackgroundBlur",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setBackgroundBlur",
+      "descriptor": "(ZLcom/coui/appcompat/uiutil/AnimLevel;)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setBackgroundBlur",
+      "descriptor": "(ZZ)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setDraggable",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "setCanPullUp",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView"
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "initTableView",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/view/TableView$InitParams;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "setTableViewCallback",
+      "descriptor": "(Ljava/lang/ref/WeakReference;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawCourse$computeRectF",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/view/TableView;Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)Landroid/graphics/RectF;",
+      "static": true
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawCourse$drawCourseItem",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/view/TableView;ILandroid/graphics/Canvas;Ljava/util/List;Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;Z)V",
+      "static": true
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawCourse",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawTopTitle",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawContent",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawLeftAxisArea",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawTouchRect",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawDragArea",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isShareMode",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "scrollY",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "contentStartY",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isRtl",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "courseRadius",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "shouldHighlightWeekdays",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "interaction",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback"
+    },
+    {
+      "feature": "interaction",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "showCourseInfoDialog",
+      "descriptor": "(Ljava/util/ArrayList;I)V",
+      "static": false
+    },
+    {
+      "feature": "interaction",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "showWeekSelectDialog",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "interaction",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "onDeleteCourse",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "interaction",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "refreshCourseData",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "interaction",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "getCopyCourse",
+      "descriptor": "()Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$InitParams"
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$InitParams",
+      "name": "<init>",
+      "descriptor": "(Ljava/lang/String;Ljava/util/List;IIJZZZZZZZFZ)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$InitParams",
+      "name": "<init>",
+      "descriptor": "(Ljava/lang/String;Ljava/util/List;IIJZZZZZZZFZILkotlin/jvm/internal/DefaultConstructorMarker;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes"
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "loadRes",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "getTOP_TITLE_BG",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "setTOP_TITLE_BG",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "getPRIMARY_COLOR",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "setPRIMARY_COLOR",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "getSUB_TITLE_COLOR",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "setSUB_TITLE_COLOR",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "getTEXT_COLOR_NOT_THIS_WEEK",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "setTEXT_COLOR_NOT_THIS_WEEK",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "INSTANCE",
+      "descriptor": "Lcom/android/calendar/card/schooltimetable/view/TimeTableDimensionRes;",
+      "static": true
+    },
+    {
+      "feature": "render",
+      "kind": "class",
+      "owner": "com.oplus.todotaskability.TodoColor"
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.oplus.todotaskability.TodoColor",
+      "name": "createByIndex",
+      "descriptor": "(Ljava/lang/Integer;)Lcom/oplus/todotaskability/TodoColor;",
+      "static": true
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.oplus.todotaskability.TodoColor",
+      "name": "getBgColor",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.COUIMaterialEffect"
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "isMaterialVersion",
+      "descriptor": "()Z",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewBlurEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialBlurEffect$BaseBlurEffectParams;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewBlurEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialBlurEffect$BaseBlurEffectParams;Lcom/coui/appcompat/COUIMaterialBlurEffect$BaseBlurEffectParams;Lcom/coui/appcompat/COUIMaterialBlurEffect$BaseBlurEffectParams;F)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewBlurEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialBlurEffect$BlurEffectType;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewStrokeEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialStrokeEffect$Companion$StrokeEffectParams;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewStrokeEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialStrokeEffect$Companion$StrokeEffectParams;Lcom/coui/appcompat/COUIMaterialStrokeEffect$Companion$StrokeEffectParams;Lcom/coui/appcompat/COUIMaterialStrokeEffect$Companion$StrokeEffectParamsHolder;F)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setViewStrokeEffect",
+      "descriptor": "(Landroid/view/View;Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setCornerParams",
+      "descriptor": "(Landroid/view/View;Lcom/oplus/view/material/OplusMaterialCornerParams;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setOutlineCausticShadowColor",
+      "descriptor": "(Landroid/view/View;I)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setOutlineCausticShadowLayout",
+      "descriptor": "(Landroid/view/View;IIII)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setOutlineCausticShadowParams",
+      "descriptor": "(Landroid/view/View;F)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "setOutlineCausticShadowParams",
+      "descriptor": "(Landroid/view/View;FFFFFF)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "clearCausticShadow",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "clearBlurEffect",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialEffect",
+      "name": "getStrokeParamsByType",
+      "descriptor": "(Landroid/content/Context;Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;)Lcom/coui/appcompat/COUIMaterialStrokeEffect$Companion$StrokeEffectParams;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager"
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "addOnMaterialStateChangedListener",
+      "descriptor": "(Lcom/coui/appcompat/OnMaterialStateChangeListener;)V",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "removeOnMaterialStateChangedListener",
+      "descriptor": "(Lcom/coui/appcompat/OnMaterialStateChangeListener;)V",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "isBlurEffectEnable",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "isStrokeEffectEnable",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "isCausticShadowEffectEnable",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialStateManager",
+      "name": "INSTANCE",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialStateManager;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.COUIMaterialBlurEffect$BlurEffectType"
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialBlurEffect$BlurEffectType",
+      "name": "TYPE_FRAMEWORK_BOTTOM_BAR",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialBlurEffect$BlurEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialBlurEffect$BlurEffectType",
+      "name": "TYPE_NO_EFFECT",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialBlurEffect$BlurEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.COUIMaterialStrokeEffect$StrokeEffectType"
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialStrokeEffect$StrokeEffectType",
+      "name": "TYPE_NO_EFFECT_BASE_1",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialStrokeEffect$StrokeEffectType",
+      "name": "TYPE_FRAMEWORK_CAPSULE_3",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialStrokeEffect$StrokeEffectType",
+      "name": "TYPE_NO_EFFECT",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.COUIMaterialStrokeEffect$StrokeEffectType",
+      "name": "TYPE_FRAMEWORK_CAPSULE_12",
+      "descriptor": "Lcom/coui/appcompat/COUIMaterialStrokeEffect$StrokeEffectType;",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.OnMaterialStateChangeListener"
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.OnMaterialStateChangeListener",
+      "name": "onMaterialStateChange",
+      "descriptor": "(IZ)V",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils"
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "setElevationToView",
+      "descriptor": "(Landroid/view/View;I)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "setElevationToView",
+      "descriptor": "(Landroid/view/View;IF)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "setElevationToView",
+      "descriptor": "(Landroid/view/View;III)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "setElevationToView",
+      "descriptor": "(Landroid/view/View;IIII)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "setElevationToView",
+      "descriptor": "(Landroid/view/View;IIIIF)V",
+      "static": true
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable"
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setEdgeEnable",
+      "descriptor": "(Z)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setShadowEnable",
+      "descriptor": "(Z)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setLineAlpha",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setLineWidth",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setLineAngle",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setFadeAlpha",
+      "descriptor": "(FF)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setFadeWidthScale",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setIsDarkMode",
+      "descriptor": "(Z)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setCornerType",
+      "descriptor": "(I)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setWeight",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setPaintBlendMode",
+      "descriptor": "(Landroid/graphics/BlendMode;)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setCornerRadius",
+      "descriptor": "(F)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable",
+      "name": "setCornerRadius",
+      "descriptor": "(FFFF)Lcom/coui/appcompat/shadowedge/COUIShadowEdgeDrawable;",
+      "static": false
+    },
+    {
+      "feature": "edit",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CreateCourseActivity"
+    },
+    {
+      "feature": "edit",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CreateCourseActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "edit",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CreateCourseActivity",
+      "name": "deleteCourse",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CourseTableManageActivity"
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseTableManageActivity",
+      "name": "deleteSelectedItem",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.CourseTableManageViewModel"
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.CourseTableManageViewModel",
+      "name": "getItems",
+      "descriptor": "()Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "edit",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCreateCourseViewModel"
+    },
+    {
+      "feature": "edit",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCreateCourseViewModel",
+      "name": "getSelectedCourseEntity",
+      "descriptor": "()Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity"
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getEvent",
+      "descriptor": "()Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setEvent",
+      "descriptor": "(Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getCourseName",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getDayOfWeek",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getStartNode",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getEndNode",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getColor",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setDayOfWeek",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setStartNode",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setEndNode",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setColor",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setStartTime",
+      "descriptor": "(J)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "setEndTime",
+      "descriptor": "(J)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity"
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "<init>",
+      "descriptor": "(JIILcom/android/calendar/card/schooltimetable/entity/CourseTimeEntity;ZZZI)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "<init>",
+      "descriptor": "(JIILcom/android/calendar/card/schooltimetable/entity/CourseTimeEntity;ZZZIILkotlin/jvm/internal/DefaultConstructorMarker;)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "getHasReminder",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "getReminderTime",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "getCourseTableTime",
+      "descriptor": "()Lcom/android/calendar/card/schooltimetable/entity/CourseTimeEntity;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "getTermBeginTime",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTableEntity",
+      "name": "getWeekNumberOfThisTerm",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity"
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "<init>",
+      "descriptor": "(Landroid/os/Parcel;)V",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getMorningCoursesList",
+      "descriptor": "()Ljava/util/ArrayList;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getAfternoontCoursesList",
+      "descriptor": "()Ljava/util/ArrayList;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getNightCoursesList",
+      "descriptor": "()Ljava/util/ArrayList;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CourseScheduleSettingFragment$CourseItem"
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseScheduleSettingFragment$CourseItem",
+      "name": "getStartTime",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseScheduleSettingFragment$CourseItem",
+      "name": "getEndTime",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "import",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.ScheduleTableUtils"
+    },
+    {
+      "feature": "import",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.ScheduleTableUtils",
+      "name": "buildEventByCourseEntity",
+      "descriptor": "(JLcom/android/calendar/card/schooltimetable/entity/CourseTableEntity;Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": true
+    },
+    {
+      "feature": "import",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.ScheduleTableUtils",
+      "name": "getTimeByCourseNode",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseTableEntity;Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;Z)J",
+      "static": true
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderActivity"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "onCreatePreferences",
+      "descriptor": "(Landroid/os/Bundle;Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "setCalendarEntity",
+      "descriptor": "(Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "getCalendarEntity",
+      "descriptor": "()Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "getReminderIndex",
+      "descriptor": "()Lkotlinx/coroutines/flow/x0;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "getHasReminder",
+      "descriptor": "()Lkotlinx/coroutines/flow/x0;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "updateReminderIndex",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "updateHasReminder",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.ActivityCourseReminderViewModel",
+      "name": "changeCourseReminder",
+      "descriptor": "(Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;I)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;II)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.TwoStatePreference",
+      "name": "setChecked",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setOnPreferenceChangeListener",
+      "descriptor": "(Landroidx/preference/Preference$c;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setKey",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUISwitchPreference",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setSummary",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setSummary",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setPersistent",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setEnabled",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;I)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;II)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIPreference",
+      "name": "setAssignment",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setOnPreferenceClickListener",
+      "descriptor": "(Landroidx/preference/Preference$d;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setTitle",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.Preference",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coui.appcompat.preference.COUIMenuPreference",
+      "name": "setEnabled",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.r"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.r",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.r",
+      "name": "Q",
+      "descriptor": "(Landroid/content/Context;Lcom/coloros/calendar/widget/bottomsheetdialog/g;IIIJ)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.r",
+      "name": "S",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "field",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.r",
+      "name": "C",
+      "descriptor": "Lcom/coloros/calendar/widget/bottomsheetdialog/r$a;",
+      "static": true
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.g"
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil",
+      "name": "isCalendarProviderMergeVerison",
+      "descriptor": "(Landroid/content/Context;)Z",
+      "static": true
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.CalendarDao"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.CalendarDao",
+      "name": "getInstance",
+      "descriptor": "(Landroid/content/Context;)Lcom/coloros/calendar/foundation/databasedaolib/dao/CalendarDao;",
+      "static": true
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.CalendarDao",
+      "name": "queryCalendarById",
+      "descriptor": "(JZ)Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.CalendarDao",
+      "name": "queryCalendarById",
+      "descriptor": "(JZZ)Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "field",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.CalendarDao",
+      "name": "uOrm",
+      "descriptor": "Lcom/coloros/calendar/foundation/databasedaolib/orm/MicroOrm;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "getInstance",
+      "descriptor": "(Landroid/content/Context;)Lcom/coloros/calendar/foundation/databasedaolib/dao/EventDao;",
+      "static": true
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "queryEventById",
+      "descriptor": "(ZJ)Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "queryEventById",
+      "descriptor": "(ZJZ)Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "queryEventById",
+      "descriptor": "(ZLjava/util/List;)Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "queryEventById",
+      "descriptor": "(ZLjava/util/List;Z)Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "field",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.EventDao",
+      "name": "uOrm",
+      "descriptor": "Lcom/coloros/calendar/foundation/databasedaolib/orm/MicroOrm;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm",
+      "name": "toContentValues",
+      "descriptor": "(Ljava/lang/Object;)Landroid/content/ContentValues;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm",
+      "name": "toContentValues",
+      "descriptor": "(Ljava/lang/Object;Z)Landroid/content/ContentValues;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.annotations.Column"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.annotations.Column",
+      "name": "readonly",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.annotations.Column",
+      "name": "value",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "<init>",
+      "descriptor": "(Landroid/os/Parcel;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "<init>",
+      "descriptor": "(Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity$Builder;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "<init>",
+      "descriptor": "(Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity$Builder;Lcom/coloros/calendar/foundation/databasedaolib/entities/a;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "getId",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setId",
+      "descriptor": "(J)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "getCalendarId",
+      "descriptor": "()Ljava/lang/Long;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setCalendarId",
+      "descriptor": "(Ljava/lang/Long;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "getRrule",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setRrule",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "getReminders",
+      "descriptor": "()Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "setReminders",
+      "descriptor": "(Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "getTitle",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "getEventsJsonExtensions",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setEventsJsonExtensions",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.CalendarEntity"
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.CalendarEntity",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.CalendarEntity",
+      "name": "<init>",
+      "descriptor": "(Landroid/os/Parcel;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getId",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getCalendarJsonExtensions",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setCalendarJsonExtensions",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setCalendarDisplayName",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setName",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setAccountName",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setAccountType",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setOwnerAccount",
+      "descriptor": "(Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setCalendarAccessLevel",
+      "descriptor": "(Ljava/lang/Integer;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setVisible",
+      "descriptor": "(Ljava/lang/Integer;)V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "setSyncEvents",
+      "descriptor": "(Ljava/lang/Integer;)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao"
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "addEventMetaData",
+      "descriptor": "(Landroid/database/Cursor;Ljava/util/List;Ljava/util/List;Z)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "addCalendarMetadata",
+      "descriptor": "(Landroid/database/Cursor;Ljava/util/List;Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "getEventMetaDataForEventEntity",
+      "descriptor": "(Ljava/lang/String;Lcom/coloros/calendar/foundation/databasedaolib/entities/EventEntity;Landroid/database/Cursor;Ljava/util/List;Z)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "getMetaDataForCalendarEntity",
+      "descriptor": "(Ljava/lang/String;Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;Landroid/database/Cursor;Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "class",
+      "owner": "com.google.gson.Gson"
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "<init>",
+      "descriptor": "(Lcom/google/gson/internal/Excluder;Lcom/google/gson/FieldNamingStrategy;Ljava/util/Map;ZZZZLcom/google/gson/FormattingStyle;Lcom/google/gson/Strictness;ZZLcom/google/gson/LongSerializationPolicy;Ljava/lang/String;IILjava/util/List;Ljava/util/List;Ljava/util/List;Lcom/google/gson/ToNumberStrategy;Lcom/google/gson/ToNumberStrategy;Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;Lcom/google/gson/reflect/TypeToken;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;Ljava/lang/Class;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;Ljava/lang/reflect/Type;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Lcom/google/gson/stream/JsonReader;Lcom/google/gson/reflect/TypeToken;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Lcom/google/gson/stream/JsonReader;Ljava/lang/reflect/Type;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/io/Reader;Lcom/google/gson/reflect/TypeToken;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/io/Reader;Ljava/lang/Class;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/io/Reader;Ljava/lang/reflect/Type;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/lang/String;Lcom/google/gson/reflect/TypeToken;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "fromJson",
+      "descriptor": "(Ljava/lang/String;Ljava/lang/reflect/Type;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;)Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Ljava/lang/Object;)Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Ljava/lang/Object;Ljava/lang/reflect/Type;)Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;Lcom/google/gson/stream/JsonWriter;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Lcom/google/gson/JsonElement;Ljava/lang/Appendable;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Ljava/lang/Object;Ljava/lang/Appendable;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Ljava/lang/Object;Ljava/lang/reflect/Type;Lcom/google/gson/stream/JsonWriter;)V",
+      "static": false
+    },
+    {
+      "feature": "serialization",
+      "kind": "method",
+      "owner": "com.google.gson.Gson",
+      "name": "toJson",
+      "descriptor": "(Ljava/lang/Object;Ljava/lang/reflect/Type;Ljava/lang/Appendable;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "class",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment"
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "setCourseList",
+      "descriptor": "(Ljava/util/ArrayList;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "setTableViewType",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "setAllCourseList",
+      "descriptor": "(Ljava/util/List;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "setMOnEditItemClickListener",
+      "descriptor": "(Lkotlin/jvm/functions/Function1;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "setMAddCourseBtnClickListener",
+      "descriptor": "(Lkotlin/jvm/functions/Function1;)V",
+      "static": false
+    },
+    {
+      "feature": "weeks",
+      "kind": "class",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CurrentWeekSelectFragment"
+    },
+    {
+      "feature": "weeks",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CurrentWeekSelectFragment",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "weeks",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CurrentWeekSelectFragment",
+      "name": "<init>",
+      "descriptor": "(IIIJJLjava/util/List;Lkotlin/jvm/functions/Function1;)V",
+      "static": false
+    },
+    {
+      "feature": "weeks",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CurrentWeekSelectFragment",
+      "name": "<init>",
+      "descriptor": "(IIIJJLjava/util/List;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.MapBottomSheetDialogFragment"
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.MapBottomSheetDialogFragment",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.MapBottomSheetDialogFragment",
+      "name": "setShowMaxHeigth",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "setBlurBackground",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "setBlurBackground",
+      "descriptor": "(ZZ)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "setCanPullUp",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "setMainPanelFragment",
+      "descriptor": "(Lcom/coui/appcompat/panel/COUIPanelFragment;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "show",
+      "descriptor": "(Landroidx/fragment/app/FragmentManager;Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "show",
+      "descriptor": "(Landroidx/fragment/app/FragmentManager;Ljava/lang/String;Landroid/view/View;)V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "dismiss",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "details",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialogFragment",
+      "name": "dismiss",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "share",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolShareTableActivity"
+    },
+    {
+      "feature": "share",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolShareTableActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "create",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.CreateCourseTableActivity"
+    },
+    {
+      "feature": "create",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CreateCourseTableActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "bus",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus"
+    },
+    {
+      "feature": "bus",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus",
+      "name": "with",
+      "descriptor": "(Ljava/lang/String;)Lcom/coloros/calendar/foundation/buslib/LiveDataBus$BusMutableLiveData;",
+      "static": false
+    },
+    {
+      "feature": "bus",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus",
+      "name": "with",
+      "descriptor": "(Ljava/lang/String;Ljava/lang/Class;)Lcom/coloros/calendar/foundation/buslib/LiveDataBus$BusMutableLiveData;",
+      "static": false
+    },
+    {
+      "feature": "bus",
+      "kind": "field",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus",
+      "name": "Companion",
+      "descriptor": "Lcom/coloros/calendar/foundation/buslib/LiveDataBus$Companion;",
+      "static": true
+    },
+    {
+      "feature": "alarms",
+      "kind": "class",
+      "owner": "com.android.calendar.alerts.AlertReceiver"
+    },
+    {
+      "feature": "alarms",
+      "kind": "method",
+      "owner": "com.android.calendar.alerts.AlertReceiver",
+      "name": "onReceive",
+      "descriptor": "(Landroid/content/Context;Landroid/content/Intent;)V",
+      "static": false
+    },
+    {
+      "feature": "callbacks",
+      "kind": "class",
+      "owner": "kotlin.jvm.functions.Function1"
+    },
+    {
+      "feature": "callbacks",
+      "kind": "method",
+      "owner": "kotlin.jvm.functions.Function1",
+      "name": "invoke",
+      "descriptor": "(Ljava/lang/Object;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "callbacks",
+      "kind": "class",
+      "owner": "kotlin.s"
+    },
+    {
+      "feature": "callbacks",
+      "kind": "method",
+      "owner": "kotlin.s",
+      "name": "toString",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "callbacks",
+      "kind": "field",
+      "owner": "kotlin.s",
+      "name": "a",
+      "descriptor": "Lkotlin/s;",
+      "static": true
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarMenuView"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.COUIBottomFloatingNavigationBarMenuView",
+      "name": "dispatchTouchEvent",
+      "descriptor": "(Landroid/view/MotionEvent;)Z",
+      "static": false
+    },
+    {
+      "feature": "material",
+      "kind": "class",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView"
+    },
+    {
+      "feature": "material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView",
+      "name": "mIsDrawableMaterialEffect",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "navigation",
+      "kind": "class",
+      "owner": "androidx.fragment.app.FragmentActivity"
+    },
+    {
+      "feature": "navigation",
+      "kind": "method",
+      "owner": "androidx.fragment.app.FragmentActivity",
+      "name": "getSupportFragmentManager",
+      "descriptor": "()Landroidx/fragment/app/FragmentManager;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "class",
+      "owner": "com.coui.appcompat.poplist.PopupListItem"
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem",
+      "name": "getTitle",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder",
+      "name": "setId",
+      "descriptor": "(I)Lcom/coui/appcompat/poplist/PopupListItem$Builder;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.PopupListItem$Builder",
+      "name": "setGroupId",
+      "descriptor": "(I)Lcom/coui/appcompat/poplist/PopupListItem$Builder;",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "setUseBackgroundBlur",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "menus",
+      "kind": "method",
+      "owner": "com.coui.appcompat.poplist.COUIPopupListWindow",
+      "name": "setUseBackgroundBlur",
+      "descriptor": "(ZLcom/coui/appcompat/uiutil/AnimLevel;)V",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "field",
+      "owner": "me.goldze.mvvmhabit.base.BaseActivity",
+      "name": "viewModel",
+      "descriptor": "Lme/goldze/mvvmhabit/base/BaseViewModel;",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity",
+      "name": "isImportCourse",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "class",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.CourseTableManageViewModel$ItemEntity"
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.CourseTableManageViewModel$ItemEntity",
+      "name": "getSelected",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "undo",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.viewmodel.CourseTableManageViewModel$ItemEntity",
+      "name": "getCalendarEntity",
+      "descriptor": "()Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getMLeft",
+      "descriptor": "()F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getMTop",
+      "descriptor": "()F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getMRight",
+      "descriptor": "()F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseEntity",
+      "name": "getMBottom",
+      "descriptor": "()F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "cellStartLeft",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "cellStartTop",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "whiteBgPaing",
+      "descriptor": "Landroid/graphics/Paint;",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "cellWidth",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "cellHeigt",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "spaceWeiht",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "render",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "dayNumberOfWeek",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "entity",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.EventOrm",
+      "name": "setDeleted",
+      "descriptor": "(Ljava/lang/Integer;)V",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "androidx.preference.PreferenceGroup"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.PreferenceGroup",
+      "name": "getPreference",
+      "descriptor": "(I)Landroidx/preference/Preference;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.PreferenceGroup",
+      "name": "getPreferenceCount",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.PreferenceGroup",
+      "name": "addPreference",
+      "descriptor": "(Landroidx/preference/Preference;)Z",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.PreferenceGroup",
+      "name": "findPreference",
+      "descriptor": "(Ljava/lang/CharSequence;)Landroidx/preference/Preference;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.preference.g",
+      "name": "getPreferenceScreen",
+      "descriptor": "()Landroidx/preference/PreferenceScreen;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "class",
+      "owner": "androidx.fragment.app.Fragment"
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.fragment.app.Fragment",
+      "name": "getContext",
+      "descriptor": "()Landroid/content/Context;",
+      "static": false
+    },
+    {
+      "feature": "reminders",
+      "kind": "method",
+      "owner": "androidx.fragment.app.Fragment",
+      "name": "getActivity",
+      "descriptor": "()Landroidx/fragment/app/FragmentActivity;",
+      "static": false
+    },
+    {
+      "feature": "bus",
+      "kind": "class",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus$Companion"
+    },
+    {
+      "feature": "bus",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.buslib.LiveDataBus$Companion",
+      "name": "get",
+      "descriptor": "()Lcom/coloros/calendar/foundation/buslib/LiveDataBus;",
+      "static": false
+    },
+    {
+      "feature": "course-entry-lifecycle",
+      "kind": "method",
+      "owner": "com.android.calendar.AllInOneActivity",
+      "name": "onCreate",
+      "descriptor": "(Landroid/os/Bundle;)V",
+      "static": false
+    },
+    {
+      "feature": "course-entry-lifecycle",
+      "kind": "method",
+      "owner": "com.android.calendar.AllInOneActivity",
+      "name": "onNewIntent",
+      "descriptor": "(Landroid/content/Intent;)V",
+      "static": false
+    },
+    {
+      "feature": "course-entry-lifecycle",
+      "kind": "method",
+      "owner": "com.android.calendar.AllInOneActivity",
+      "name": "onDestroy",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "course-entry-lifecycle",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.SchoolTimeTableActivity",
+      "name": "onNewIntent",
+      "descriptor": "(Landroid/content/Intent;)V",
+      "static": false
+    }
+  ],
+  "resources": [
+    {
+      "type": "id",
+      "name": "sliding_date_picker"
+    },
+    {
+      "type": "id",
+      "name": "nav_sliding_calendar"
+    },
+    {
+      "type": "id",
+      "name": "nav_sliding_second"
+    },
+    {
+      "type": "id",
+      "name": "fragment_container"
+    },
+    {
+      "type": "id",
+      "name": "ll_main"
+    },
+    {
+      "type": "id",
+      "name": "calendar_appBarLayout"
+    },
+    {
+      "type": "id",
+      "name": "school_table"
+    },
+    {
+      "type": "drawable",
+      "name": "course_table_icon"
+    },
+    {
+      "type": "drawable",
+      "name": "ic_for_week_24"
+    },
+    {
+      "type": "drawable",
+      "name": "table_action_more"
+    },
+    {
+      "type": "drawable",
+      "name": "icon_cloose"
+    },
+    {
+      "type": "drawable",
+      "name": "ic_course_action"
+    },
+    {
+      "type": "style",
+      "name": "COUIFitContentBottomSheetDialog"
+    },
+    {
+      "type": "style",
+      "name": "DefaultBottomSheetDialog"
+    },
+    {
+      "type": "layout",
+      "name": "dialog_create_course"
+    },
+    {
+      "type": "string",
+      "name": "remind_time_value"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorLabelPrimary"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorLabelSecondary"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorPrimary"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorFillThin"
+    },
+    {
+      "type": "color",
+      "name": "coui_caustic_color_2"
+    },
+    {
+      "type": "color",
+      "name": "menu_ic_tint_color_black"
+    },
+    {
+      "type": "color",
+      "name": "color_create_dialog_course_title"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_caustic_layout_l_level4"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_caustic_layout_t_level4"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_caustic_layout_r_level4"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_caustic_layout_b_level4"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_caustic_layout_sdf_level4"
+    },
+    {
+      "type": "dimen",
+      "name": "sp_18"
+    },
+    {
+      "type": "dimen",
+      "name": "dp_16"
+    }
+  ]
+}

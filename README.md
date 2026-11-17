@@ -9,7 +9,39 @@
 装完照常用日历，只是「更多」菜单里多了两项：**导入课表**、**导出课表**。
 
 ---
-下载 ：https://github.com/Xposed-Modules-Repo/io.github.yuangug.coursealarm/releases/latest
+
+## v0.9.7 切页与入口修复（2026-11-17）
+
+切回课程表复用页面和分页组件；后台准备课程、缓存背景，数据变化后按需刷新。桌面旧快捷方式及日程中的普通课表启动调用统一进入增强主页，保留原生导入预览。继续兼容 17.3.70 / 17.6.20 / 17.8.0。
+
+指定手机日历 17.6.20 的单轮六次切页采样中，卡顿帧比例由 10.04% 降至 2.49%，第 95 百分位帧耗时由 42ms 降至 23ms。三版通过 405 项 DEX、30 项资源和 415 项独立 ART 检查；不代表三版全部功能 UI 验收。
+
+安装包、完整验证边界及既有 Lint 问题见 [0.9.7 变更说明](CHANGELOG-0.9.7.md)。
+
+## v0.9.6 三版本兼容（2026-11-17）
+
+同一个模块 APK 适配用户提供的日历 **17.3.70 / 17.6.20 / 17.8.0**。按宿主实际接口选择底栏切页、创建课表和周课表适配器；修正课程编辑的 JSON 方法匹配与 Kotlin 回调。
+
+三版均通过 401 项 DEX 接口、30 项资源检查，以及指定真机独立进程中的 410 项反射／合成数据检查。未逐版安装日历进行完整 UI、数据库事务和闹钟触发回归。保留现有透明顶部、四档遮罩、三秒环形撤回栏与实时课程材质。
+
+详细差异、验证边界和复现命令见 [兼容说明](compatibility/README.md)；交付记录见 [0.9.6 变更说明](CHANGELOG-0.9.6.md)。
+
+---
+
+## v0.9.0 修复（2026-11-16）
+
+| 问题 | 根因 | 现在 |
+|---|---|---|
+| ⋮ → 导入 → **替换现有课表**点了没反应 | `TableCtx` 读完课程后按「哪张表课最多」重选日历，把宿主 prefs 里的当前表覆盖掉了；写完又只通知标准 provider URI 并用 `recreate` 刷新 | 当前表**只认宿主 prefs**（`sp_key_current_course_table`）；写完 `notifyChange`（含 `content://com.coloros.calendar/*`）+ 宿主 `LiveDataBus` 的 `refresh_course_table`，课表页就地刷新，不跳页 |
+| ⋮ → **分享课表** 打开是空白图（`null · 第 0 周`） | 直接 `startActivity(SchoolShareTableActivity)`，宿主需要的 5 个 extras 一个没带 | 按宿主原生入口补齐 `course_name / current_week / selected_week / extension_json / course_list`，分享图与课表页一致 |
+| ⋮ → **创建课表** 直接进了「手动创建」页 | 跳的是 `CreateCourseTableActivity`，不是宿主那个三格面板 | 改调宿主 `ImportCourseTableHelper.F(activity,false)` —— 原生「创建课表」底部面板（相册导入 / 手动创建；**ColorOS 17 才有拍照导入**，16 上宿主自己会隐藏那一格） |
+| 导入 / 导出 / 选文件面板是模块自绘样式 | `PickerSheet` 自绘 Dialog | 换成宿主 `COUIBottomSheetDialog` + `R.style.COUIFitContentBottomSheetDialog` + 宿主的 `sp_18 / dp_16 / icon_cloose / color_create_dialog_course_title`，与「创建课表」同一观感；条目多时自动限高可滚动 |
+
+一句话判据：`current table from host prefs = N` → `insert done: N/N → calendar_id=N`（同一个 N）→ `afterWrite: bus refresh=true/true/true`。
+细节与实测证据见 `analysis/findings-course-table-menu-fix.md`。
+
+---
+
 ## 功能
 
 ### 一、课程表就在主页
@@ -44,7 +76,7 @@
 ⋮ → 课表主题，弹出底部卡片面板（和宿主「创建课表」同款样式）：
 
 - **无背景** / **纯色**（6 种柔和底色）/ **渐变**（4 套）/ **图片**（png / jpg / webp / **gif 动图**）
-- 背景遮罩三档（浅 / 中 / 深），保证课表文字始终看得清
+- 背景遮罩四档（透明 / 浅 / 中 / 深）
 - 图片会复制进模块私有目录（不用系统 Uri 授权，重启也不丢）
 
 ### 三、导入课表（四种来源，任选）
@@ -90,7 +122,7 @@
 课表页 `⋮ → 课表主题`：
 
 - **背景图片**：支持 `png / jpg / webp / gif`（gif 会动），选完整个课表页铺底，格子间隙与页边都能透出来
-- **遮罩三档**：浅 / 中 / 深，用来平衡「背景看清楚」和「课程文字看得清」
+- **遮罩四档**：透明 / 浅 / 中 / 深
 - **移除背景**：一键恢复默认白底
 
 背景直接画在课表 View 的 canvas 上，不会被格子的不透明底盖掉。
@@ -126,6 +158,8 @@ ColorOS 17 的日历把底栏换成了 COUI 的「图标 + 文字」浮动胶囊
 
 - 响铃时间 = 上课时间 − 提前量
 - 标签形如「课程闹钟 08:10 · 高等数学」，响过一次自动删除，不会天天响
+- **一天只有一个闹钟**：取当天上午**最早**的一节。1-2 节有课 → 按 1-2 节设；只有 3-4 节有课 → 按 3-4 节设；
+  1-2 和 3-4 节**都**有课 → 只按 1-2 节设一个，**不会**再为 3-4 节建第二个
 - 只在**有早课的那天**建；第二天没课就不设
 - 清理时只删自己设的（`message LIKE '课程闹钟%'`），你自己的闹钟一个不动
 - 日历进程被杀了也能响（借宿主 `AlertReceiver` 冷启动），打开 App 时会自动补排

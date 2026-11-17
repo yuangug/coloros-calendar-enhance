@@ -4,7 +4,6 @@ import android.app.Activity;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,7 +29,6 @@ final class HostWeekSheet {
     private static final String CLS_SHEET =
             "com.android.calendar.card.schooltimetable.MapBottomSheetDialogFragment";
     private static final String CLS_FN1 = "kotlin.jvm.functions.Function1";
-    private static final String CLS_UNIT = "kotlin.Unit";
     private static final String TAG_SHEET = "lspx_week_select";
 
     private HostWeekSheet() {
@@ -66,19 +64,12 @@ final class HostWeekSheet {
             long calId = d.calendarId;
             List<Object> courses = new ArrayList<>();      // 空 list 宿主自己会兜底
 
-            Object unit = null;
-            Class<?> unitCls = Ref.cls(host, CLS_UNIT);
-            if (unitCls != null) unit = Ref.field(unitCls, "INSTANCE");
-
-            final Object unitRet = unit;
-            Object cb = Proxy.newProxyInstance(host, new Class<?>[]{fn1Cls}, (p, m, args) -> {
-                if ("invoke".equals(m.getName()) && args != null && args.length == 1
-                        && args[0] instanceof Integer) {
-                    int idx = (Integer) args[0];
+            Object cb = HostCompat.unitCallback(host, value -> {
+                if (value instanceof Integer) {
+                    int idx = (Integer) value;
                     Logx.i(T, "HostWeekSheet: 选中第 " + (idx + 1) + " 周");
                     HostTablePage.jumpTo(idx + 1);
                 }
-                return unitRet;
             });
 
             Object panel = k.newInstance(weeks, current, selected, term, calId, courses, cb);

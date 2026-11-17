@@ -125,7 +125,7 @@ final class CourseEdit {
             Class<?> gsonCls = Ref.cls(host, CLS_GSON);
             if (gsonCls == null) return null;
             Object gson = gsonCls.getDeclaredConstructor().newInstance();
-            Method toJson = Ref.methodByTypes(gsonCls, Object.class);
+            Method toJson = Ref.methodOf(gsonCls, "toJson", Object.class);
             if (toJson == null) return null;
             Object s = toJson.invoke(gson, entity);
             return s instanceof String ? (String) s : null;

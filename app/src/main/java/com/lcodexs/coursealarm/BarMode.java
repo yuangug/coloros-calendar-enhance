@@ -25,11 +25,21 @@ final class BarMode {
 
     private static Drawable savedLeft;
     private static Drawable savedRight;
+    private static java.lang.ref.WeakReference<Activity> owner = new java.lang.ref.WeakReference<>(null);
 
     private BarMode() {
     }
 
     static void enter(Activity a) {
+        if (active && owner.get() == a) {
+            syncAccessories(a);
+            setWindowBackdrop(a, true);
+            selectSegment(a, 2);
+            return;
+        }
+        Activity previous = owner.get();
+        if (active && previous != null && previous != a) exit(previous);
+        owner = new java.lang.ref.WeakReference<>(a);
         active = true;
         if (MainTabHook.newBar) {
             enterNew(a);
@@ -46,6 +56,7 @@ final class BarMode {
 
     static void exit(Activity a) {
         active = false;
+        owner.clear();
         if (MainTabHook.newBar) {
             exitNew(a);
             return;
@@ -60,6 +71,23 @@ final class BarMode {
     // ── 17.x 新底栏（COUIBottomFloatingAccessoryNavigationBar） ───────────────
 
     private static android.graphics.drawable.Drawable savedStartIcon, savedEndIcon;
+    private static Drawable tableStartIcon, tableEndIcon;
+
+    /** Native Fragment initialization can overwrite the icons after onResume. */
+    static void syncAccessories(Activity activity) {
+        if (!active || !MainTabHook.newBar) return;
+        Object bar = NewBar.barOf(activity);
+        if (bar == null) return;
+        Drawable start = NewBar.accessoryIcon(bar, true), end = NewBar.accessoryIcon(bar, false);
+        if (tableStartIcon == null || start != tableStartIcon) {
+            savedStartIcon = NewBar.swapAccessory(bar, true, activity, "ic_for_week_24");
+            tableStartIcon = NewBar.accessoryIcon(bar, true);
+        }
+        if (tableEndIcon == null || end != tableEndIcon) {
+            savedEndIcon = NewBar.swapAccessory(bar, false, activity, "table_action_more");
+            tableEndIcon = NewBar.accessoryIcon(bar, false);
+        }
+    }
 
     /**
      * 新底栏没有 float_view_menu_button / float_add_button，取而代之的是左右两个「附件」圆钮：
@@ -75,6 +103,8 @@ final class BarMode {
         }
         savedStartIcon = NewBar.swapAccessory(bar, true, a, "ic_for_week_24");
         savedEndIcon = NewBar.swapAccessory(bar, false, a, "table_action_more");
+        tableStartIcon = NewBar.accessoryIcon(bar, true);
+        tableEndIcon = NewBar.accessoryIcon(bar, false);
         setBarBackdrop(a, true);
         setWindowBackdrop(a, true);
         selectSegment(a, 2);
@@ -87,6 +117,8 @@ final class BarMode {
             NewBar.restoreAccessory(bar, false, savedEndIcon);
             savedStartIcon = null;
             savedEndIcon = null;
+            tableStartIcon = null;
+            tableEndIcon = null;
         }
         setBarBackdrop(a, false);
         setWindowBackdrop(a, false);
@@ -152,8 +184,9 @@ final class BarMode {
             return;
         }
         if (on) {
-            android.graphics.drawable.Drawable d = ThemeBg.windowDrawable(a);
+            android.graphics.drawable.Drawable d = ThemeBg.windowDrawable(main);
             if (d == null) {
+                main.setBackground(null);
                 Logx.i(T, "顶部留白条：没有主题，保持原样");
                 return;
             }

@@ -33,7 +33,7 @@ final class ReminderUiInjector {
     static final String K_VIBRATE = "lspx_alarm_vibrate";
 
     private static final String SUMMARY_SWITCH =
-            "按第二天上午的课自动生成一次性闹钟（每晚 21:00 生效）";
+            "按第二天最早的一节课生成一个一次性闹钟（每晚 21:00 生效，一天只响一次）";
 
     private ReminderUiInjector() {
     }
@@ -96,7 +96,7 @@ final class ReminderUiInjector {
                 Logx.i(T, "ui: 早晨闹钟 -> " + on);
                 if (on) {
                     Scheduler.ensureScheduled(ctx);
-                    toast(ctx, "正在按明天上午的课设置闹钟…");
+                    toast(ctx, "正在按明天最早一节课设置一个闹钟…");
                     NightJob.runAsync(ctx, "ui-switch-on");
                 } else {
                     Scheduler.cancel(ctx);
