@@ -27,11 +27,11 @@ import java.util.List;
 final class HostTableData {
     private static final String T = CourseAlarmEntry.TAG;
 
-    private static final Uri EVENTS_URI = CalendarContract.Events.CONTENT_URI;
     private static final String COL_CAL_JSON = "calendars_json_extensions";
     private static final String COL_EVENT_JSON = "events_json_extensions";
 
     /** 课程表（当前课表）的配置 JSON */
+    String backendAuthority;
     String tableJson;
     /** 一条课程一个 JSON 原文 */
     final List<String> courseJsons = new ArrayList<>();
@@ -81,6 +81,7 @@ final class HostTableData {
 
     private void readCalendars(Context ctx, ContentResolver cr) {
         TableCtx current = TableCtx.load(ctx);
+        backendAuthority = current.backendAuthority;
         calendarId = current.calendarId;
         tableJson = current.tableJson;
         tableName = current.tableName;
@@ -92,7 +93,9 @@ final class HostTableData {
         if (calendarId <= 0) return;
         Cursor c = null;
         try {
-            c = cr.query(EVENTS_URI, new String[]{
+            CalendarBackend backend = CalendarBackend.current(context);
+            if (!backend.authority.equals(backendAuthority)) throw new IllegalStateException("课表存储已切换");
+            c = cr.query(backend.uri("events"), new String[]{
                     "calendar_id", COL_EVENT_JSON, "hasExtendedProperties", "_id", "deleted"},
                     null, null, null);
             if (c == null) return;

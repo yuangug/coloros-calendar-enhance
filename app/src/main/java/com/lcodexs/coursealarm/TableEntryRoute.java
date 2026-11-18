@@ -21,8 +21,9 @@ final class TableEntryRoute {
 
     static boolean isPreview(Intent intent) {
         return intent != null && (intent.hasExtra("courseTimeEntity")
-                || intent.hasExtra("course_list") || intent.getBooleanExtra("is_import_course", false)
-                || intent.getBooleanExtra("request_import_course", false));
+                || intent.hasExtra("course_list") || intent.getBooleanExtra("is_import_course", false));
+        // request_import_course is emitted AFTER native creation has committed. It must
+        // return to the enhanced page; only the actual recognition preview stays native.
     }
 
     static Intent mainIntent(Activity activity, Intent source) {
@@ -42,6 +43,11 @@ final class TableEntryRoute {
         if (start != null) module.hook(start).setId("course_entry_start")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
                     Intent intent = (Intent)chain.getArg(0);
+                    if (chain.getThisObject() instanceof Activity) {
+                        int requestCode = (Integer)chain.getArg(1);
+                        int routed = HostCourseImport.routeRequest((Activity)chain.getThisObject(), requestCode);
+                        if (routed != requestCode) return chain.proceed(new Object[]{intent, routed, chain.getArg(2)});
+                    }
                     if (!(chain.getThisObject() instanceof Activity) || !isTable(intent) || isPreview(intent)
                             || ((Integer)chain.getArg(1)) >= 0) return chain.proceed();
                     Activity activity = (Activity)chain.getThisObject();

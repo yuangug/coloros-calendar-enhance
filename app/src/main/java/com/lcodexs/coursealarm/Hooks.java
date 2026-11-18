@@ -31,6 +31,8 @@ final class Hooks {
     private static void installCalendar(XposedModule module, ClassLoader host, Context app) {
         appCtx = app;
         MutationHooks.install(module, host, app);
+        CourseRescheduleRepair.install(module, host);
+        TableSettingsPage.install(module, host);
         hookReminderPreferences(module, host);
         hookNightTick(module, host, app);
         hookCourseTableMenu(module, host);
@@ -647,7 +649,8 @@ final class Hooks {
                     Object self = chain.getThisObject();
                     Logx.i(T, "hit " + cls + "#onCreatePreferences self=" + self);
                     try {
-                        ReminderUiInjector.injectAfterCreatePreferences(self, host);
+                        if (TableSettingsPage.isPage(self)) TableSettingsPage.replaceAfterCreatePreferences(self, host);
+                        else ReminderUiInjector.injectAfterCreatePreferences(self, host);
                     } catch (Throwable t) {
                         Logx.e(T, "inject after proceed failed", t);
                     }

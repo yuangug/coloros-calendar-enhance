@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-18",
+  "module": {
+    "package": "io.github.yuangug.coursealarm",
+    "versionName": "0.9.8",
+    "versionCode": 35,
+    "sha256": "a9f853c290659d95dfdef6fb1caa806747f90ba7013b789ca025832bcdcd5e95",
+    "installed": true,
+    "verificationClassesExcluded": true
+  },
+  "device": "192.168.137.143:5555",
+  "installedHost": {
+    "package": "com.coloros.calendar",
+    "versionName": "17.3.70",
+    "versionCode": 17003070
+  },
+  "hostChecks": [
+    {
+      "versionName": "17.3.70",
+      "apkSha256": "ba72436c495e581e058878a82a9c5858b061e2bf08105871bc33e9a853354752",
+      "dexContracts": 416,
+      "resources": 32,
+      "artChecks": 427,
+      "passed": true
+    },
+    {
+      "versionName": "17.6.20",
+      "apkSha256": "c78a409a42c3289557baac7a7494c04d5efc1af3ae3541d100ef93acf157719a",
+      "dexContracts": 416,
+      "resources": 32,
+      "artChecks": 427,
+      "passed": true
+    },
+    {
+      "versionName": "17.8.0",
+      "apkSha256": "c33cf14c1403cd361fb0615e7ed6d7c3712e082acaf88b1cb0b5bcad0e850465",
+      "dexContracts": 416,
+      "resources": 32,
+      "artChecks": 427,
+      "passed": true
+    }
+  ],
+  "uiChecks": [
+    "empty menu has both native buttons",
+    "paste without copy shows prompt and does not write",
+    "add opens native editor with selected day and period",
+    "native add saves a new course",
+    "copy captures an independent template",
+    "paste creates a different event ID and inherits target reminder",
+    "paste undo restores original count",
+    "clipboard survives week navigation",
+    "partial period overlap rejected without write",
+    "new courses survive process restart",
+    "clipboard unavailable in a different timetable",
+    "empty menu repositioned after first layout",
+    "release build menu and add/cancel smoke"
+  ],
+  "dataPreservation": {
+    "calendars": true,
+    "events": true,
+    "reminders": true,
+    "extendedproperties": true,
+    "attendees": true
+  },
+  "cleanup": {
+    "originalSelectionRestored": true,
+    "testTableDeleted": true,
+    "testRemindersAndRelatedRowsRemoved": true,
+    "productionApkRestored": true,
+    "deviceCommandFilesRemoved": true
+  },
+  "build": {
+    "assembleRelease": true,
+    "lintVitalRelease": true,
+    "fullLintRun": false,
+    "diffWhitespaceCheck": true
+  },
+  "limitations": [
+    "17.6.20 and 17.8.0 checked in isolated ART processes, not full UI installations",
+    "Full import/alarm/material regression and full lint not repeated"
+  ],
+  "evidenceDirectory": "artifacts/long-press-20261118/"
+}

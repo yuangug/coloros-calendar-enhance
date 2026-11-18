@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-18",
+  "moduleVersion": "0.9.10",
+  "preFixCommit": "820d1fa",
+  "device": "192.168.137.143:5555",
+  "installedHost": "17.8.0 (17008000)",
+  "deviceBackend": "com.android.calendar",
+  "hosts": [
+    {
+      "version": "17.3.70",
+      "contracts": 500,
+      "resources": 48,
+      "artChecks": 530,
+      "passed": true,
+      "backendFixtureChecks": 32,
+      "backendFixturePassed": true
+    },
+    {
+      "version": "17.6.20",
+      "contracts": 500,
+      "resources": 48,
+      "artChecks": 530,
+      "passed": true,
+      "backendFixtureChecks": 32,
+      "backendFixturePassed": true
+    },
+    {
+      "version": "17.8.0",
+      "contracts": 500,
+      "resources": 48,
+      "artChecks": 530,
+      "passed": true,
+      "backendFixtureChecks": 32,
+      "backendFixturePassed": true
+    }
+  ],
+  "backendTestScope": "native SQLiteContentProvider batch implementation, synthetic in-memory CRUD, production undo planner and journal; no real host database",
+  "liveVerified": [
+    "native album selection, crop, OCR, preview, save two synthetic courses",
+    "new table import",
+    "append and replace with undo",
+    "course deletion and table deletion with exact-token undo",
+    "mid-batch failure rolls back existing event"
+  ],
+  "limitations": [
+    "No complete UI test on 17.3.70 or 17.6.20",
+    "No real unmerged-provider integration device",
+    "Camera, recreation during picker and completed-import enhanced routing not fully UI retested",
+    "Earlier 0.9.9 intermittent future-weeks undo failure remains unexplained"
+  ],
+  "cleanup": {
+    "activeTestTables": 0,
+    "testReminders": 0,
+    "syntheticImageRemoved": true,
+    "privateCommandFilesRemoved": true,
+    "laterEditsPreserved": true
+  },
+  "release": {
+    "package": "io.github.yuangug.coursealarm",
+    "versionName": "0.9.10",
+    "versionCode": 37,
+    "sha256": "6623786c08a9c6fcb0032ad5bb91f4fa423b4a5575130838489f65c87a7faeb8",
+    "signerSha256": "4a80f9e94160715d9e1222d0142d3f74f47f79162e47fcef10df85c21c273a11",
+    "testClassesExcluded": true,
+    "installedOn": "192.168.137.143:5555"
+  }
+}

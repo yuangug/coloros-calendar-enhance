@@ -141,6 +141,10 @@ final class CourseSurfaceRenderer {
         Header header = HEADERS.get(root);
         if (header != null) header.invalidate();
     }
+    static boolean hasSurface(View table) {
+        Session session = SESSIONS.get(table);
+        return session != null && !session.released;
+    }
     private static final class Capture {
         final boolean suppressFills;
         Capture(boolean suppressFills) { this.suppressFills = suppressFills; }
@@ -186,7 +190,7 @@ final class CourseSurfaceRenderer {
             if (card==null) {
                 card=new Card(tableView.getContext(),style,scene); cards.put(entity,card); layer.addView(card);
             }
-            card.rect.set(rect); card.radius=Math.min(number(Ref.field(tableView,"courseRadius")),Math.min(rect.width(),rect.height())/2);
+            card.entity=entity; card.rect.set(rect); card.radius=Math.min(number(Ref.field(tableView,"courseRadius")),Math.min(rect.width(),rect.height())/2);
             int courseColor=((Number)Ref.callName(entity,"getColor")).intValue();
             if (card.paletteIndex!=courseColor) {
                 Class<?> cls=Class.forName("com.oplus.todotaskability.TodoColor",false,tableView.getContext().getClassLoader());
@@ -227,10 +231,23 @@ final class CourseSurfaceRenderer {
             if (moved) header.invalidate();
         }
         private void position(Card card) {
-            Matrix transform=new Matrix(contentToRoot);transform.preTranslate(card.rect.left,card.rect.top);
+            RectF placement=new RectF(card.rect);
+            View tableView=table.get();
+            boolean dragging=tableView!=null && CourseDragController.previewRect(tableView,card.entity,placement);
+            Matrix transform=new Matrix(contentToRoot);transform.preTranslate(placement.left,placement.top);
             int width=Math.max(1,(int)Math.ceil(card.rect.width())),height=Math.max(1,(int)Math.ceil(card.rect.height()));
             card.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
             card.layout(0,0,width,height);
+            if(dragging){
+                float scroll=number(Ref.field(tableView,"scrollY"));
+                int top=Math.max(0,(int)Math.ceil(number(Ref.field(tableView,"contentStartY"))+scroll-placement.top));
+                int bottom=Math.min(height,(int)Math.floor(CourseDragController.previewBottom(tableView)+scroll-placement.top));
+                int left=Math.max(0,(int)Math.ceil(number(Ref.field(tableView,"contentStartX"))-placement.left));
+                int right=Math.min(width,(int)Math.floor(tableView.getWidth()-placement.left));
+                left=Math.min(left,width);top=Math.min(top,height);
+                card.setClipBounds(new Rect(left,top,Math.max(left,right),Math.max(top,bottom)));
+                if(layer.indexOfChild(card)!=layer.getChildCount()-1)card.bringToFront();
+            } else card.setClipBounds(null);
             if (!card.cardToRoot.equals(transform)) { card.setAnimationMatrix(transform); card.cardToRoot.set(transform); card.mappingChanged=true; }
             // Clip in the layer's coordinates, including partially visible first/last rows.
             try { card.update(); } catch(Exception error) { fail(error);card.setBackgroundColor(card.courseColor); }
@@ -347,6 +364,7 @@ final class CourseSurfaceRenderer {
     private static final class Card extends View {
         final RenderNode foreground=new RenderNode("course-native-foreground");
         final RectF rect=new RectF();final Matrix cardToRoot=new Matrix();
+        Object entity;
         final GlassScene scene;final LiquidCardEffect liquid;final NativeCardMaterial nativeMaterial;
         int paletteIndex=Integer.MIN_VALUE,courseColor;float radius;boolean seen,mappingChanged=true;
         int lastWidth=-1,lastHeight=-1,lastGeneration=-1,lastConfig;float lastRadius=-1;

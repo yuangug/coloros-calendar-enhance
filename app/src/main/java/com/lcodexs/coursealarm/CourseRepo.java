@@ -102,7 +102,7 @@ final class CourseRepo {
         Logx.i(T, "query instances " + fmt(begin) + " .. " + fmt(end)
                 + " courseCalendars=" + courseCalIds);
 
-        Uri.Builder b = CalendarContract.Instances.CONTENT_URI.buildUpon();
+        Uri.Builder b = Uri.parse("content://" + table.backendAuthority + "/instances/when").buildUpon();
         ContentUris.appendId(b, begin);
         ContentUris.appendId(b, end);
 
@@ -190,34 +190,6 @@ final class CourseRepo {
         Logx.i(T, "pick earliest = " + String.format(Locale.US, "%02d:%02d", best.hour, best.minute)
                 + "，跳过 " + skipped + "（一天只设一个闹钟）");
         return one;
-    }
-
-    /** 课程表日历 id：account_name 含 course，或日历名是「课程表」 */
-    private static Set<Long> courseCalendarIds(ContentResolver cr) {
-        Set<Long> ids = new LinkedHashSet<>();
-        String[] proj = new String[]{
-                CalendarContract.Calendars._ID,
-                CalendarContract.Calendars.ACCOUNT_NAME,
-                CalendarContract.Calendars.CALENDAR_DISPLAY_NAME
-        };
-        Cursor c = null;
-        try {
-            c = cr.query(CalendarContract.Calendars.CONTENT_URI, proj, null, null, null);
-            if (c == null) return ids;
-            while (c.moveToNext()) {
-                long id = c.getLong(0);
-                String acc = c.getString(1);
-                String name = c.getString(2);
-                boolean course = (acc != null && (acc.contains("course") || acc.contains("kebiao")))
-                        || (name != null && (name.equals("课程表") || name.contains("课程表")));
-                if (course) ids.add(id);
-            }
-        } catch (Throwable t) {
-            Logx.e(T, "query calendars failed", t);
-        } finally {
-            if (c != null) try { c.close(); } catch (Throwable ignored) { }
-        }
-        return ids;
     }
 
     private static int periodOf(int h, int m) {

@@ -16,6 +16,30 @@ import uuid
 from dex_contracts import read_apk, verify_contract
 
 
+def validate_spec(spec):
+    """Reject malformed probe input before reporting static success or touching a device."""
+    for section in ("contracts", "resources"):
+        if not isinstance(spec.get(section), list):
+            raise ValueError(f"Contract specification requires a {section} list")
+    for i, contract in enumerate(spec["contracts"]):
+        if not isinstance(contract, dict):
+            raise ValueError(f"Contract {i} must be an object")
+        kind = contract.get("kind")
+        if kind not in ("class", "method", "field"):
+            raise ValueError(f"Contract {i} has an invalid kind")
+        required = ("feature", "owner") + (() if kind == "class" else ("name", "descriptor"))
+        for key in required:
+            if not isinstance(contract.get(key), str) or not contract[key].strip():
+                raise ValueError(f"Contract {i} requires a nonempty {key} string")
+        if kind != "class" and not isinstance(contract.get("static"), bool):
+            raise ValueError(f"Contract {i} requires a static boolean")
+    for i, resource in enumerate(spec["resources"]):
+        if not isinstance(resource, dict) or any(
+                not isinstance(resource.get(key), str) or not resource[key].strip()
+                for key in ("type", "name")):
+            raise ValueError(f"Resource {i} requires nonempty type and name strings")
+
+
 def command(args, timeout=60):
     result = subprocess.run([str(a) for a in args], capture_output=True,
                             encoding="utf-8", errors="replace", timeout=timeout)
@@ -45,6 +69,10 @@ def selectors(index):
     return {
         "changeType": choose(fold, "(I)V", ["changeType", "s", "t"]),
         "createSheet": choose(helper, "(Landroidx/fragment/app/FragmentActivity;Z)V", static=True),
+        "imageCleanup": choose(helper, "(Landroid/content/Context;)V",
+                               ["B"] if any(m[0] == "G" and m[1] == "(Landroidx/fragment/app/FragmentActivity;Z)V"
+                                            for m in index[helper]["methods"]) else ["I"], static=True),
+        "cropImage": choose(helper, "()Landroid/net/Uri;", ["u", "z"]),
         "weekAdapter": choose(adapter, "(Landroid/content/Context;Ljava/lang/String;Ljava/util/List;IZI)V", ["<init>"]),
         "pagerCurrentItem": choose("androidx.viewpager2.widget.ViewPager2", "(IZ)V", ["setCurrentItem", "m"]),
     }
@@ -128,6 +156,10 @@ def main():
         parser.error("--probe requires --adb and --serial")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     spec = json.loads(args.contracts.read_text(encoding="utf-8"))
+    try:
+        validate_spec(spec)
+    except ValueError as error:
+        parser.error(str(error))
     reports = []
     for apk in args.apk:
         report = static_check(apk, spec, args.aapt2)

@@ -3046,6 +3046,763 @@
       "name": "onNewIntent",
       "descriptor": "(Landroid/content/Intent;)V",
       "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "onCreateCourse",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "onCourseCopy",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView$TableViewCallback",
+      "name": "pasteCourse",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;)V",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "onLongPress",
+      "descriptor": "(Landroid/view/MotionEvent;)V",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "clearTouchCourse",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "popupWindow",
+      "descriptor": "Landroid/widget/PopupWindow;",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mTouchCourse",
+      "descriptor": "Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.ScheduleTableUtils",
+      "name": "splitCourse",
+      "descriptor": "(IIILcom/android/calendar/card/schooltimetable/entity/CourseEntity;)Ljava/util/List;",
+      "static": true
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getMorningCourseNumber",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getAfternoonCourseNumber",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "long-press",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.entity.CourseTimeEntity",
+      "name": "getNightCourseNumber",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "computeCourseX",
+      "descriptor": "(ZI)F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "computeCourseY",
+      "descriptor": "(ZI)F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "getCourseByPosition",
+      "descriptor": "(FF)Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "onDraw",
+      "descriptor": "(Landroid/graphics/Canvas;)V",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "onTouchEvent",
+      "descriptor": "(Landroid/view/MotionEvent;)Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "onVisibilityChanged",
+      "descriptor": "(Landroid/view/View;I)V",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "courseCount",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "currentWeek",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isClickable",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isDragTouchCourseBottom",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isDragTouchCourseTop",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isDraggingCourse",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isImportMode",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "isVerticalScroll",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "longClicking",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mCourseList",
+      "descriptor": "Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mGestureDetector",
+      "descriptor": "Landroid/view/GestureDetector;",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mSumMoveDx",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mSumMoveDy",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mTableType",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "mTouchColorAlpha",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "maxScrollY",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "bottomSpace",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "contentHeight",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "multiTouching",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "showingCourseList",
+      "descriptor": "Ljava/util/List;",
+      "static": false
+    },
+    {
+      "feature": "drag",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "touchingMove",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getAccountName",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getAccountType",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getCreateTime",
+      "descriptor": "()J",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getDeleted",
+      "descriptor": "()Ljava/lang/Integer;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.orm.CalendarOrm",
+      "name": "getLocalGlobalId",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderActivity",
+      "name": "onRequestPermissionsResult",
+      "descriptor": "(I[Ljava/lang/String;[I)V",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderActivity",
+      "name": "persistIfChanged",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "getTitle",
+      "descriptor": "()Ljava/lang/String;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "onPreferenceClick",
+      "descriptor": "(Landroidx/preference/Preference;)Z",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "onResume",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "openReminder",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "courseBeforeRemindPreference",
+      "descriptor": "Lcom/coui/appcompat/preference/COUISwitchPreference;",
+      "static": false
+    },
+    {
+      "feature": "table_settings",
+      "kind": "field",
+      "owner": "com.android.calendar.card.schooltimetable.CourseReminderFragment",
+      "name": "selectCourseBeforeRemindPreference",
+      "descriptor": "Lcom/coui/appcompat/preference/COUIMenuPreference;",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "getBehavior",
+      "descriptor": "()Lcom/google/android/material/bottomsheet/BottomSheetBehavior;",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.button.COUIButton",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.checkbox.COUICheckBox",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.checkbox.COUICheckBox",
+      "name": "setChecked",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "getValue",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "setDisplayedValues",
+      "descriptor": "([Ljava/lang/String;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "setMaxValue",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "setMinValue",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "setValue",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUINumberPicker",
+      "name": "setWrapSelectorWheel",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "getDayOfMonth",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "getMonth",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "getYear",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "init",
+      "descriptor": "(IIILcom/coui/appcompat/picker/COUIDatePicker$OnDateChangedListener;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "setMaxDate",
+      "descriptor": "(J)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.picker.COUIDatePicker",
+      "name": "setMinDate",
+      "descriptor": "(J)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setNavigationContentDescription",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setNavigationIcon",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setNavigationOnClickListener",
+      "descriptor": "(Landroid/view/View$OnClickListener;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/CharSequence;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setTitleTextColor",
+      "descriptor": "(I)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.dialog.COUIAlertDialogBuilder",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;)V",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.dialog.COUIAlertDialogBuilder",
+      "name": "create",
+      "descriptor": "()Landroidx/appcompat/app/AlertDialog;",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.dialog.COUIAlertDialogBuilder",
+      "name": "setMessage",
+      "descriptor": "(Ljava/lang/CharSequence;)Lcom/coui/appcompat/dialog/COUIAlertDialogBuilder;",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.dialog.COUIAlertDialogBuilder",
+      "name": "setPositiveButton",
+      "descriptor": "(Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Lcom/coui/appcompat/dialog/COUIAlertDialogBuilder;",
+      "static": false
+    },
+    {
+      "feature": "reschedule_ui",
+      "kind": "method",
+      "owner": "com.coui.appcompat.dialog.COUIAlertDialogBuilder",
+      "name": "setTitle",
+      "descriptor": "(Ljava/lang/CharSequence;)Lcom/coui/appcompat/dialog/COUIAlertDialogBuilder;",
+      "static": false
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.button.COUIButton",
+      "name": "<init>",
+      "descriptor": "(Landroid/content/Context;Landroid/util/AttributeSet;I)V",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.toolbar.COUIToolbar",
+      "name": "setTitleTextAppearance",
+      "descriptor": "(Landroid/content/Context;I)V",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.oplus.todotaskability.TodoColor",
+      "name": "getColor",
+      "descriptor": "()I",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "getDragableLinearLayout",
+      "descriptor": "()Lcom/coui/appcompat/panel/COUIPanelContentLayout;",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelContentLayout",
+      "name": "getDragView",
+      "descriptor": "()Landroid/widget/ImageView;",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelContentLayout",
+      "name": "getPanelBarView",
+      "descriptor": "()Lcom/coui/appcompat/panel/COUIPanelBarView;",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelContentLayout",
+      "name": "getDrawLayout",
+      "descriptor": "()Landroid/widget/FrameLayout;",
+      "static": false,
+      "feature": "reschedule_ui"
+    },
+    {
+      "feature": "reschedule",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.ScheduleTableUtils",
+      "name": "isUselessCourse",
+      "descriptor": "(Lcom/android/calendar/card/schooltimetable/entity/CourseEntity;Lcom/android/calendar/card/schooltimetable/entity/CourseTableEntity;)Z",
+      "static": true
+    },
+    {
+      "feature": "reschedule",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.entities.EventEntity",
+      "name": "clone",
+      "descriptor": "()Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "backend migration guard",
+      "kind": "field",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil",
+      "name": "INSTANCE",
+      "descriptor": "Lcom/coloros/calendar/foundation/databasedaolib/helper/DataBaseMergeUtil;",
+      "static": true
+    },
+    {
+      "feature": "backend migration guard",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil",
+      "name": "isMigrating",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "local atomic provider",
+      "kind": "method",
+      "owner": "com.android.providers.calendar.SQLiteContentProvider",
+      "name": "applyBatch",
+      "descriptor": "(Ljava/util/ArrayList;)[Landroid/content/ContentProviderResult;",
+      "static": false
+    },
+    {
+      "feature": "native image import",
+      "kind": "class",
+      "owner": "com.android.calendar.ui.activity.ScanActivity"
+    },
+    {
+      "feature": "sync backend identity",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "getBackupCalendar",
+      "descriptor": "(Z)Lkotlin/Pair;",
+      "static": false
+    },
+    {
+      "feature": "sync backend identity",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.dao.SyncDataDao",
+      "name": "buildMetaDataForCalendarEntity",
+      "descriptor": "(Ljava/lang/String;Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;Z)Ljava/util/List;",
+      "static": true
     }
   ],
   "resources": [
@@ -3168,6 +3925,78 @@
     {
       "type": "dimen",
       "name": "dp_16"
+    },
+    {
+      "type": "id",
+      "name": "btn_copy"
+    },
+    {
+      "type": "id",
+      "name": "btn_delete"
+    },
+    {
+      "type": "layout",
+      "name": "activity_preference"
+    },
+    {
+      "type": "layout",
+      "name": "coui_preference"
+    },
+    {
+      "type": "xml",
+      "name": "course_reminder_fragment"
+    },
+    {
+      "type": "drawable",
+      "name": "coui_back_arrow"
+    },
+    {
+      "type": "style",
+      "name": "AppNoTitleTheme.PreferenceFragment"
+    },
+    {
+      "type": "style",
+      "name": "textAppearanceSecondTitle"
+    },
+    {
+      "type": "style",
+      "name": "COUIPreferenceTitleStyle"
+    },
+    {
+      "type": "style",
+      "name": "COUIPreferenceSummaryStyle"
+    },
+    {
+      "type": "attr",
+      "name": "couiTinyTranslateButtonColorStyle"
+    },
+    {
+      "type": "attr",
+      "name": "couiButtonColorfulWhiteStyle"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorBackgroundWithCard"
+    },
+    {
+      "type": "attr",
+      "name": "couiColorCardBackground"
+    },
+    {
+      "type": "drawable",
+      "name": "bg_shape_white_round_20"
+    },
+    {
+      "type": "dimen",
+      "name": "toolbar_height"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_dialog_button_height"
+    },
+    {
+      "type": "dimen",
+      "name": "coui_numberpicker_height"
     }
   ]
 }

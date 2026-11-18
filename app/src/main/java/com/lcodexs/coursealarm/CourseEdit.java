@@ -48,6 +48,11 @@ final class CourseEdit {
         return open(a, host, entity, "编辑");
     }
 
+    /** The blank cell already contains the host's selected week and period template. */
+    static boolean create(Activity a, ClassLoader host, Object entity) {
+        return open(a, host, entity, "添加");
+    }
+
     /**
      * 添加课程：宿主在详情面板里点「添加」时，会复制被点那格的 星期/起止节次 再开新建页
      * （SchoolTimeTableActivity#showCourseInfoDialog 的 add 分支就是这个语义）。

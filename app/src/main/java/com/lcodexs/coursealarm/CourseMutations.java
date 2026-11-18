@@ -6,7 +6,6 @@ import android.content.*;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.*;
-import android.provider.CalendarContract;
 import android.util.AtomicFile;
 import org.json.*;
 import java.io.*;
@@ -29,10 +28,13 @@ final class CourseMutations {
     }
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor(r -> new Thread(r, "course-mutations"));
     private static final Handler UI = new Handler(Looper.getMainLooper());
-    private static final Uri CAL = CalendarContract.Calendars.CONTENT_URI;
-    private static final Uri EVENT = CalendarContract.Events.CONTENT_URI;
-    private static final String AUTHORITY = CalendarContract.AUTHORITY;
+    // Accessed only on WORK; each task binds a backend before reading or constructing operations.
+    private static CalendarBackend backend;
     private static Context app;
+    private static final ExecutorService ALARM_WORK = Executors.newSingleThreadExecutor(r -> new Thread(r,"rescheduled-course-alarm"));
+    private static final Runnable RESCHEDULE_ALARM = () -> ALARM_WORK.execute(() -> {
+        if (app != null && Prefs.enabled()) NightJob.run(app, "course-rescheduled");
+    });
     private static volatile Record pending;
 
     static void init(Context context) {
@@ -50,6 +52,7 @@ final class CourseMutations {
                     // Undo deadlines never restart when the process is recreated.
                     if (state.equals("COMMITTED")) {
                         Record record = Record.parse(journal);
+                        requireRecordBackend(record);
                         boolean same = unchanged(record.after);
                         journal.put("state", same ? "EXPIRED" : "CHANGED_AFTER_RESTART");
                         saveJson(file, journal);
@@ -62,6 +65,7 @@ final class CourseMutations {
                     Logx.w(CourseAlarmEntry.TAG, "恢复记录已核对，不重放写入: " + journal.optString("state"));
                 } else if (state.equals("UNDOING") || state.equals("UNDO_APPLIED")) {
                     Record record = Record.parse(journal);
+                    requireRecordBackend(record);
                     journal.put("state", restored(record) ? "UNDONE_VERIFIED" : "NEEDS_REVIEW");
                     saveJson(file, journal);
                 } else if (state.equals("APPLIED")) {
@@ -74,6 +78,227 @@ final class CourseMutations {
     static void importCourses(Context context, TableCtx frozen, List<Course> courses, Mode mode,
                               String name, Completion completion) {
         submit(context, completion, () -> performImport(frozen, courses, mode, name));
+    }
+
+    static void captureDrag(Activity activity, Object nativeCourse, int week, DragSession.Callback callback) {
+        if (app == null) init(activity);
+        try {
+            Object event = Ref.callName(nativeCourse, "getEvent");
+            Object value = Ref.callName(event, "getId");
+            if (!(value instanceof Number)) throw new IllegalArgumentException("课程身份不可读取");
+            long id = ((Number)value).longValue();
+            HostTableData shown = HostTablePage.currentData();
+            if (shown == null || shown.calendarId <= 0) throw new IllegalStateException("课表尚未加载");
+            long calendarId = shown.calendarId;
+            String shownTable = shown.tableJson;
+            String shownCourse = String.valueOf(Ref.callName(event, "getEventsJsonExtensions"));
+            WORK.execute(() -> {
+                try {
+                    requireBackend();
+                    if (TableCtx.hostCurrentTableId(app) != calendarId) throw new IllegalStateException("当前课表已切换");
+                    Row calendar = read("calendars", calendarId);
+                    if (calendar == null || !isCourseCalendar(calendar.values)) throw new IllegalStateException("课表已删除");
+                    if (shown.backendAuthority != null && !backend.authority.equals(shown.backendAuthority))
+                        throw new IllegalStateException("日历存储已切换，请刷新课表");
+                    String tableJson = calendar.values.getAsString("calendars_json_extensions");
+                    if (!sameConfig(shownTable, tableJson)) throw new IllegalStateException("课表配置已变化，请刷新后重试");
+                    TableCtx table = TableCtx.fromMetadata(calendarId, calendar.values.getAsString("calendar_displayName"), tableJson);
+                    table.backendAuthority = backend.authority;
+                    if (week < 1 || week > table.weekCount) throw new IllegalArgumentException("展示周无效");
+                    List<DragSession.Entry> courses = captureEntries(calendarId, true);
+                    DragSession.Entry source = null;
+                    for (DragSession.Entry entry : courses) if (entry.eventId == id) source = entry;
+                    if (source == null || !sameConfig(shownCourse, source.json)) throw new IllegalStateException("课程已变化，请刷新后重试");
+                    if (!source.course.weeks.get(week)) throw new IllegalArgumentException("非本周课程禁止拖动");
+                    if (table.dateOf(week, source.course.day).isBefore(table.termDate()))
+                        throw new IllegalArgumentException("此位置早于开学日期，没有可调动的课程");
+                    DragSession session = new DragSession(table, week, source, courses, comparable(calendar));
+                    UI.post(() -> { if (!activity.isDestroyed() && !activity.isFinishing()) callback.done(session, null); });
+                } catch (Exception error) { UI.post(() -> callback.done(null, rootMessage(error))); }
+            });
+        } catch (Exception error) { UI.post(() -> callback.done(null, rootMessage(error))); }
+    }
+
+    private static List<DragSession.Entry> captureEntries(long calendarId, boolean includeChildren) throws Exception {
+        ArrayList<DragSession.Entry> entries = new ArrayList<>();
+        Map<Long,List<Row>> children = new HashMap<>();
+        if (includeChildren) for (String child : CHILDREN) for (Row row : rows(child, null, 0))
+            children.computeIfAbsent(number(row.values,"event_id"), ignored -> new ArrayList<>()).add(row);
+        for (Row row : rows("events", "calendar_id", calendarId)) {
+            if (number(row.values,"deleted") != 0 || number(row.values,"hasExtendedProperties") != CourseWriter.COURSE_EXT_PROP) continue;
+            entries.add(new DragSession.Entry(row.id, row.values.getAsString("events_json_extensions"), row.values,
+                    comparable(row), childFingerprint(children.getOrDefault(row.id, Collections.emptyList()))));
+        }
+        return entries;
+    }
+
+    private static String childFingerprint(List<Row> children) throws Exception {
+        ArrayList<String> values = new ArrayList<>();
+        for (Row row : children) values.add(row.key()+":"+comparable(row));
+        Collections.sort(values); return String.join("\n",values);
+    }
+    private static boolean sameConfig(String first, String second) throws Exception {
+        JSONObject a = new JSONObject(first), b = new JSONObject(second);
+        a.remove("sysVersion"); b.remove("sysVersion");
+        return canonical(a).toString().equals(canonical(b).toString());
+    }
+
+    static void reschedule(Activity activity, RescheduleRequest request, Completion completion) {
+        submit(activity, result -> {
+            if (result.success && !result.message.isEmpty()) queueAlarmRefresh();
+            if (completion != null) completion.done(result);
+        }, () -> performReschedule(request), true);
+    }
+
+    private static Result performReschedule(RescheduleRequest request) throws Exception {
+        requireBackend();
+        DragSession session = request.session;
+        if (session.table.backendAuthority != null && !backend.authority.equals(session.table.backendAuthority))
+            throw new IllegalStateException("日历存储已切换，请重新调课");
+        if (TableCtx.hostCurrentTableId(app) != session.calendarId) throw new IllegalStateException("当前课表已切换，请重新调课");
+        Row calendar = read("calendars",session.calendarId);
+        if (calendar == null || !isCourseCalendar(calendar.values) || !comparable(calendar).equals(session.calendarFingerprint))
+            throw new IllegalStateException("课表配置已变化，请重新调课");
+        List<DragSession.Entry> current = captureEntries(session.calendarId,true);
+        Set<Long> selected = request.scope == RescheduleRequest.Scope.DAY ? request.eventIds : Collections.singleton(session.eventId);
+        for (long id : selected) {
+            DragSession.Entry frozen = session.entry(id), now = null;
+            for (DragSession.Entry entry : current) if(entry.eventId==id) now=entry;
+            if(frozen==null || now==null || !frozen.fingerprint.equals(now.fingerprint) || !frozen.childFingerprint.equals(now.childFingerprint))
+                throw new IllegalStateException("课程或提醒已变化，请重新调课");
+        }
+        List<ReschedulePlanner.Change> changes = ReschedulePlanner.plan(request,current);
+        if (changes.isEmpty()) return new Result(true,"",session.calendarId,null);
+        Record record = new Record(request.scope == RescheduleRequest.Scope.DAY ? "已调整 " + changes.size() + " 门课程" : "已调整课程",session.calendarId);
+        ArrayList<ContentProviderOperation> ops = new ArrayList<>();
+        ops.add(assertion(calendar));
+        // Protect all conflict inputs, including additions and deletions between planning and applyBatch.
+        for(DragSession.Entry entry:current) ops.add(assertion(new Row("events",entry.eventId,entry.eventValues,false)));
+        ops.add(ContentProviderOperation.newAssertQuery(uri("events"))
+                .withSelection("calendar_id=? AND deleted=0 AND hasExtendedProperties=?",new String[]{Long.toString(session.calendarId),Integer.toString(CourseWriter.COURSE_EXT_PROP)})
+                .withExpectedCount(current.size()).withYieldAllowed(false).build());
+        for(ReschedulePlanner.Change change:changes) {
+            List<Row> snapshot = new ArrayList<>(); snapshotEvent(snapshot,change.source.eventId);
+            if (!comparable(snapshot.get(0)).equals(change.source.fingerprint)
+                    || !childFingerprint(snapshot.subList(1,snapshot.size())).equals(change.source.childFingerprint))
+                throw new IllegalStateException("课程或提醒已变化，请重新调课");
+            record.before.addAll(snapshot);
+        }
+        ops.addAll(assertions(record.before));
+        ArrayList<Integer> inserted = new ArrayList<>();
+        for(ReschedulePlanner.Change change:changes) {
+            if(change.remainingJson!=null) {
+                ContentValues remaining = rescheduledValues(session,change.source,change.remainingJson,true,false);
+                addEventUpdate(ops,change.source.eventId,change.source.eventValues,remaining,calendar.values);
+                ContentValues moved = rescheduledValues(session,change.source,change.movedJson,change.preserveTimes,true);
+                int index=ops.size();
+                ops.add(ContentProviderOperation.newInsert(sync(uri("events"),calendar.values)).withValues(moved).withYieldAllowed(false).build());
+                inserted.add(index);
+                // Preserve each relation exactly; reminders are not reconstructed from a global default.
+                for(Row child:record.before) if(!child.table.equals("events") && number(child.values,"event_id")==change.source.eventId) {
+                    ContentValues values=new ContentValues(child.values);values.remove("_id");values.remove("event_id");
+                    ops.add(ContentProviderOperation.newInsert(sync(uri(child.table),calendar.values)).withValues(values)
+                            .withValueBackReference("event_id",index).withYieldAllowed(false).build());
+                    inserted.add(ops.size()-1);
+                }
+            } else {
+                ContentValues moved=rescheduledValues(session,change.source,change.movedJson,change.preserveTimes,false);
+                addEventUpdate(ops,change.source.eventId,change.source.eventValues,moved,calendar.values);
+            }
+        }
+        if(ops.size()>1500) throw new IllegalArgumentException("单次调课事务过大，请减少课程后重试");
+        return commit(record,ops,inserted,false);
+    }
+
+    private static void addEventUpdate(List<ContentProviderOperation> ops,long id,ContentValues before,ContentValues after,ContentValues calendar) {
+        ContentValues changed=new ContentValues(after);
+        for(String key:new ArrayList<>(changed.keySet())) if(Objects.equals(changed.get(key),before.get(key))) changed.remove(key);
+        if (changed.size() == 0) return; // The source row is already guarded by the batch assertions.
+        ops.add(ContentProviderOperation.newUpdate(sync(uri("events"),calendar)).withSelection("_id=?",args(id)).withValues(changed)
+                .withExpectedCount(1).withYieldAllowed(false).build());
+    }
+
+    private static ContentValues rescheduledValues(DragSession session,DragSession.Entry source,String courseJson,
+                                                    boolean preserveTimes,boolean insert) throws Exception {
+        String prefix="com.android.calendar.card.schooltimetable.entity.";
+        JSONObject sourceJson=new JSONObject(courseJson);
+        if(!preserveTimes) sourceJson.put("startTime",0).put("endTime",0).put("timeDuration","");
+        Object course=HostEntities.fromJson(app,prefix+"CourseEntity",sourceJson.toString());
+        Object table=HostEntities.fromJson(app,prefix+"CourseTableEntity",session.tableJson);
+        Object event=HostEntities.newEntity(app,"Event");
+        HostEntities.set(event,"setId",source.eventId);
+        HostEntities.set(event,"setEventsJsonExtensions",source.json);
+        Class<?> utils=Class.forName("com.android.calendar.card.schooltimetable.ScheduleTableUtils",false,app.getClassLoader());
+        java.lang.reflect.Method builder=Ref.methodByArity(utils,"buildEventByCourseEntity",4);
+        if(builder==null)throw new NoSuchMethodException("buildEventByCourseEntity");
+        builder.invoke(null,session.calendarId,table,event,course);
+        ContentValues built=HostEntities.values(app,"Event",event);
+        Long begin=built.getAsLong("dtstart");
+        if(begin==null||begin<=0)throw new IllegalStateException("宿主未能构建课程时间");
+        ContentValues result=new ContentValues(source.eventValues);
+        for(String key:new String[]{"original_id","original_sync_id","originalInstanceTime","original_event_local_global_id"}) {
+            String original=result.getAsString(key);
+            if(original!=null&&!original.isEmpty()&&!original.equals("0")&&!original.equals("-1"))
+                throw new IllegalStateException("此课程是重复日程的例外，请先在课程编辑页确认周次后再调课");
+        }
+        for(String key:new String[]{"exdate","exrule","rdate"}) {
+            String extra=result.getAsString(key);
+            if(extra!=null&&!extra.isEmpty()) throw new IllegalStateException("此课程包含额外重复例外，请先在课程编辑页确认周次后再调课");
+        }
+        for(String key:new String[]{"dtstart","dtend","duration","rrule","eventTimezone","eventEndTimezone"}) {
+            if(built.containsKey(key)) { Object value=built.get(key); if(value==null)result.putNull(key);else if(value instanceof Number)result.put(key,((Number)value).longValue());else result.put(key,value.toString()); }
+            else if(key.equals("dtend")||key.equals("duration")||key.equals("rrule")) result.putNull(key);
+        }
+        // CourseEntity serialization discards fields unknown to this host; merge back the original extension.
+        JSONObject nativeJson=new JSONObject(built.getAsString("events_json_extensions"));
+        for(Iterator<String> it=nativeJson.keys();it.hasNext();) {String key=it.next();sourceJson.put(key,nativeJson.get(key));}
+        result.put("events_json_extensions",sourceJson.toString());
+        if(preserveTimes) {
+            int[] time=ReschedulePlanner.times(session.table,source);
+            Calendar date=Calendar.getInstance();date.setTimeInMillis(begin);
+            date.set(Calendar.HOUR_OF_DAY,time[0]/3600);date.set(Calendar.MINUTE,time[0]/60%60);date.set(Calendar.SECOND,time[0]%60);date.set(Calendar.MILLISECOND,0);
+            long adjusted=date.getTimeInMillis();result.put("dtstart",adjusted);
+            String recurrence=result.getAsString("rrule");
+            if(recurrence!=null&&!recurrence.isEmpty()){result.put("duration","P"+(time[1]-time[0])+"S");result.putNull("dtend");}
+            else {result.putNull("duration");result.put("dtend",adjusted+(time[1]-time[0])*1000L);}
+        }
+        long finalStart = result.getAsLong("dtstart");
+        int finalDuration = CourseDuration.parseSeconds(result.getAsString("duration"));
+        Long finalEnd = result.getAsLong("dtend");
+        if (finalDuration <= 0 && finalEnd != null && finalEnd > finalStart)
+            finalDuration = Math.toIntExact((finalEnd - finalStart) / 1000L);
+        if (finalDuration <= 0 || finalDuration > 86400) throw new IllegalStateException("宿主生成的课程时长无效");
+        // timeDuration is the host's localized morning/afternoon label, not an ISO duration.
+        sourceJson.put("startTime",finalStart).put("endTime",finalStart + finalDuration * 1000L);
+        result.put("events_json_extensions",sourceJson.toString());
+        result.put("calendar_id",session.calendarId);result.put("dirty",1);result.put("deleted",0);
+        result.put("mutators",app.getPackageName());
+        if(result.containsKey("event_update_time"))result.put("event_update_time",System.currentTimeMillis());
+        result.putNull("lastDate");
+        if(insert) {
+            for(String key:new ArrayList<>(result.keySet())) if(key.equals("_id")||key.equals("_sync_id")||key.equals("local_global_id")
+                    ||key.equals("uid2445")
+                    ||key.equals("event_local_global_id")||key.equals("original_event_local_global_id")
+                    ||key.equals("original_id")||key.equals("original_sync_id")||key.equals("originalInstanceTime")||key.equals("originalAllDay")
+                    ||key.equals("lastSynced")||key.startsWith("sync_data"))result.remove(key);
+            if(result.containsKey("event_create_time"))result.put("event_create_time",System.currentTimeMillis());
+            // Nullable provider columns are commands on update, but omitted on insert.
+            for(String key:new ArrayList<>(result.keySet()))if(result.get(key)==null)result.remove(key);
+        }
+        CourseRescheduleRepair.stamp(result, session.tableJson);
+        return result;
+    }
+
+    static void pasteCourse(Context context, long calendarId, String tableJson, String courseJson) {
+        submit(context, null, () -> {
+            TableCtx target = TableCtx.load(app);
+            if (calendarId <= 0 || target.calendarId != calendarId)
+                throw new IllegalStateException("当前课表已切换，请重新粘贴");
+            // Freeze the configuration shown when the user clicked, then revalidate in the writer.
+            target.tableJson = tableJson;
+            return performImport(target, Collections.singletonList(CourseClipboard.read(courseJson)),
+                    Mode.APPEND, null, courseJson);
+        });
     }
 
     static void deleteCourse(Activity activity, long eventId) {
@@ -89,7 +314,7 @@ final class CourseMutations {
             Record record = new Record("已删除课程", number(event.values, "calendar_id"));
             snapshotEvent(record.before, eventId);
             ArrayList<ContentProviderOperation> ops = assertions(record.before);
-            ops.add(ContentProviderOperation.newDelete(EVENT).withSelection("_id=?", args(eventId))
+            ops.add(ContentProviderOperation.newDelete(uri("events")).withSelection("_id=?", args(eventId))
                     .withExpectedCount(1).withYieldAllowed(false).build());
             return commit(record, ops, Collections.emptyList(), false);
         });
@@ -110,8 +335,8 @@ final class CourseMutations {
             }
             ArrayList<ContentProviderOperation> ops = assertions(record.before);
             for (long id : new LinkedHashSet<>(ids)) {
-                ops.add(ContentProviderOperation.newDelete(EVENT).withSelection("calendar_id=?", args(id)).withYieldAllowed(false).build());
-                ops.add(ContentProviderOperation.newDelete(CAL).withSelection("_id=?", args(id)).withExpectedCount(1).withYieldAllowed(false).build());
+                ops.add(ContentProviderOperation.newDelete(uri("events")).withSelection("calendar_id=?", args(id)).withYieldAllowed(false).build());
+                ops.add(ContentProviderOperation.newDelete(uri("calendars")).withSelection("_id=?", args(id)).withExpectedCount(1).withYieldAllowed(false).build());
             }
             return commit(record, ops, Collections.emptyList(), ids.contains(record.selectedBefore));
         });
@@ -119,6 +344,9 @@ final class CourseMutations {
 
     private interface Task { Result run() throws Exception; }
     private static void submit(Context context, Completion completion, Task task) {
+        submit(context, completion, task, false);
+    }
+    private static void submit(Context context, Completion completion, Task task, boolean reportsErrors) {
         if (app == null) init(context);
         WORK.execute(() -> {
             Result result;
@@ -133,23 +361,30 @@ final class CourseMutations {
             }
             catch (Exception error) {
                 Logx.e(CourseAlarmEntry.TAG, "课程操作失败", error);
-                result = new Result(false, "操作失败：" + rootMessage(error), -1, null);
+                result = new Result(false, reportsErrors ? rescheduleError(error) : "操作失败：" + rootMessage(error), -1, null);
             }
             Result outcome = result;
             UI.post(() -> {
                 if (outcome.success) {
-                    refresh();
+                    if (!outcome.message.isEmpty()) refresh();
                     if (outcome.undoToken != null) UndoBar.show(outcome.message, outcome.undoToken);
-                    else CurriculumIo.toast(app, outcome.message);
-                } else { refresh(); CurriculumIo.toast(app, outcome.message); }
+                    else if (!outcome.message.isEmpty()) CurriculumIo.toast(app, outcome.message);
+                } else { refresh(); if (!reportsErrors || completion == null) CurriculumIo.toast(app, outcome.message); }
                 if (completion != null) completion.done(outcome);
             });
         });
     }
 
     private static Result performImport(TableCtx frozen, List<Course> courses, Mode mode, String name) throws Exception {
+        return performImport(frozen, courses, mode, name, null);
+    }
+
+    private static Result performImport(TableCtx frozen, List<Course> courses, Mode mode, String name,
+                                        String pastedJson) throws Exception {
         requireBackend();
         if (courses == null || courses.isEmpty()) throw new IllegalArgumentException("没有有效课程，原课表未改动");
+        if (frozen.backendAuthority != null && !backend.authority.equals(frozen.backendAuthority))
+            throw new IllegalStateException("日历存储已切换，请重新预览导入");
         if (frozen.calendarId <= 0) throw new IllegalStateException("请先选择课表");
         Row current = read("calendars", frozen.calendarId);
         if (current == null || !isCourseCalendar(current.values)) throw new IllegalStateException("目标课表已删除");
@@ -165,7 +400,7 @@ final class CourseMutations {
                 throw new IllegalArgumentException("课程时间或周次超出目标课表：" + course.name);
         }
         boolean create = mode == Mode.NEW_TABLE;
-        Record record = new Record(create ? "已新建课表并导入" : mode == Mode.REPLACE ? "已替换课程" : "已追加课程", frozen.calendarId);
+        Record record = new Record(pastedJson != null ? "已粘贴课程" : create ? "已新建课表并导入" : mode == Mode.REPLACE ? "已替换课程" : "已追加课程", frozen.calendarId);
         ArrayList<ContentProviderOperation> operations = new ArrayList<>();
         ArrayList<Integer> inserted = new ArrayList<>();
         Object calendar;
@@ -188,7 +423,7 @@ final class CourseMutations {
             HostEntities.set(calendar, "setUpdateTime", System.currentTimeMillis());
             ContentValues values = HostEntities.values(app, "Calendar", calendar);
             values.remove("_id"); values.put("sync_events", 1); values.put("visible", 1);
-            operations.add(ContentProviderOperation.newInsert(sync(CAL, values)).withValues(values).withYieldAllowed(false).build());
+            operations.add(ContentProviderOperation.newInsert(sync(uri("calendars"), values)).withValues(values).withYieldAllowed(false).build());
             inserted.add(0);
         } else {
             calendar = HostEntities.calendar(app, frozen.calendarId);
@@ -200,7 +435,7 @@ final class CourseMutations {
                 }
                 operations.addAll(assertions(record.before));
                 for (Row row : record.before) if (row.table.equals("events")) {
-                    operations.add(ContentProviderOperation.newDelete(EVENT).withSelection("_id=?", args(row.id))
+                    operations.add(ContentProviderOperation.newDelete(uri("events")).withSelection("_id=?", args(row.id))
                             .withExpectedCount(1).withYieldAllowed(false).build());
                 }
             }
@@ -208,10 +443,35 @@ final class CourseMutations {
         String entityPackage = "com.android.calendar.card.schooltimetable.entity.";
         Object tableEntity = HostEntities.fromJson(app, entityPackage + "CourseTableEntity", tableJson);
         Class<?> utils = Class.forName("com.android.calendar.card.schooltimetable.ScheduleTableUtils", false, app.getClassLoader());
+        if (pastedJson != null) {
+            Course pasted = courses.get(0);
+            Object nativeCourse = HostEntities.fromJson(app, entityPackage + "CourseEntity", pastedJson);
+            Object timing = tableEntity.getClass().getMethod("getCourseTableTime").invoke(tableEntity);
+            Object parts = utils.getMethod("splitCourse", int.class, int.class, int.class, nativeCourse.getClass())
+                    .invoke(null, timing.getClass().getMethod("getMorningCourseNumber").invoke(timing),
+                            timing.getClass().getMethod("getAfternoonCourseNumber").invoke(timing),
+                            timing.getClass().getMethod("getNightCourseNumber").invoke(timing), nativeCourse);
+            if (!(parts instanceof List) || ((List<?>) parts).size() != 1)
+                throw new IllegalArgumentException("粘贴位置跨越上下午或晚间，请选择其他节次");
+            int count = 0;
+            for (Row row : rows("events", "calendar_id", frozen.calendarId)) {
+                if (number(row.values, "deleted") != 0 || number(row.values, "hasExtendedProperties") != CourseWriter.COURSE_EXT_PROP) continue;
+                if (CourseClipboard.overlaps(pasted, CourseClipboard.read(row.values.getAsString("events_json_extensions"))))
+                    throw new IllegalArgumentException("课程时间冲突，请选择其他位置");
+                operations.add(assertion(row));
+                count++;
+            }
+            // Reject changes between conflict checking and insertion, including newly added courses.
+            operations.add(ContentProviderOperation.newAssertQuery(uri("events"))
+                    .withSelection("calendar_id=? AND deleted=0 AND hasExtendedProperties=?",
+                            new String[]{Long.toString(frozen.calendarId), Integer.toString(CourseWriter.COURSE_EXT_PROP)})
+                    .withExpectedCount(count).withYieldAllowed(false).build());
+        }
         java.lang.reflect.Method build = Ref.methodByArity(utils, "buildEventByCourseEntity", 4);
         if (build == null) throw new NoSuchMethodException("buildEventByCourseEntity");
         for (Course course : courses) {
-            Object entity = HostEntities.fromJson(app, entityPackage + "CourseEntity", CourseWriter.toJson(course, frozen.weekCount));
+            Object entity = HostEntities.fromJson(app, entityPackage + "CourseEntity",
+                    pastedJson != null ? pastedJson : CourseWriter.toJson(course, frozen.weekCount));
             Object event = HostEntities.newEntity(app, "Event");
             HostEntities.set(event, "setTitle", course.name);
             HostEntities.set(event, "setEventLocation", course.room);
@@ -226,7 +486,7 @@ final class CourseMutations {
             boolean reminder = create || frozen.hasReminder;
             values.put("hasAlarm", reminder ? 1 : 0);
             int eventIndex = operations.size();
-            ContentProviderOperation.Builder insert = ContentProviderOperation.newInsert(EVENT).withValues(values).withYieldAllowed(false);
+            ContentProviderOperation.Builder insert = ContentProviderOperation.newInsert(uri("events")).withValues(values).withYieldAllowed(false);
             if (create) insert.withValueBackReference("calendar_id", 0);
             operations.add(insert.build()); inserted.add(eventIndex);
             if (reminder) {
@@ -236,7 +496,7 @@ final class CourseMutations {
                     Object methodValue = Ref.callName(((List<?>) nativeReminders).get(0), "getMethod");
                     if (methodValue instanceof Number) method = ((Number) methodValue).intValue();
                 }
-                operations.add(ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+                operations.add(ContentProviderOperation.newInsert(uri("reminders"))
                         .withValueBackReference("event_id", eventIndex).withValue("minutes", create ? 15 : frozen.reminderMinutes)
                         .withValue("method", method).withYieldAllowed(false).build());
             }
@@ -248,12 +508,17 @@ final class CourseMutations {
 
     private static Result commit(Record record, ArrayList<ContentProviderOperation> operations,
                                  List<Integer> inserted, boolean changeSelection) throws Exception {
+        requireRecordBackend(record);
+        for (ContentProviderOperation operation : operations)
+            if (!record.authority.equals(operation.getUri().getAuthority()) || operation.isYieldAllowed())
+                throw new IllegalStateException("事务包含其他存储或可中断操作，未写入数据");
         record.state = "PREPARED"; save(record);
         // Protect the rows before publishing tombstones to the provider's observers.
-        for (Row row : record.before) CourseSyncGate.hold(record.token, row.table, row.id);
+        for (Row row : record.before) CourseSyncGate.hold(record.token, record.authority, row.table, row.id);
         ContentProviderResult[] results;
         try {
-            results = app.getContentResolver().applyBatch(AUTHORITY, operations);
+            backend.requireCurrent(app);
+            results = app.getContentResolver().applyBatch(record.authority, operations);
             if (results == null || results.length != operations.size())
                 throw new IllegalStateException("宿主未确认事务结果，保留恢复记录，请勿重复操作");
         }
@@ -269,7 +534,7 @@ final class CourseMutations {
             if (uri == null) throw new IllegalStateException("事务返回缺少新增记录 ID");
             Row insertedId = Row.absent(uri.getPathSegments().get(0), ContentUris.parseId(uri));
             record.inserted.add(insertedId);
-            CourseSyncGate.hold(record.token, insertedId.table, insertedId.id);
+            CourseSyncGate.hold(record.token, record.authority, insertedId.table, insertedId.id);
         }
         save(record);
         Set<String> keys = new HashSet<>();
@@ -291,6 +556,10 @@ final class CourseMutations {
                 for (Row childRow : rows(child, "event_id", id)) if (keys.add(childRow.key())) record.after.add(childRow);
             }
         }
+        // Invalidate cached settings for deleted/restored identities; retain their private preferences for undo.
+        for (Row row : record.before) if (row.table.equals("calendars")) TableSettings.invalidate(row.id);
+        for (Row row : record.after) if (row.table.equals("calendars") && !row.absent && !contains(record.before,row.key()))
+            TableSettings.resetForNewTable(app,row.id);
         if (changeSelection) {
             Row created = null;
             for (Row row : record.after) if (row.table.equals("calendars") && !row.absent
@@ -335,6 +604,7 @@ final class CourseMutations {
             }
             boolean applied = false;
             try {
+                requireRecordBackend(record);
                 record.state = "UNDOING"; save(record);
                 for (int attempt = 0; ; attempt++) {
                     // One frozen image drives both the conflict check and insert/update decisions.
@@ -342,7 +612,8 @@ final class CourseMutations {
                     if (!unchanged(record.after, current)) throw new IllegalStateException("课程已被再次修改，无法撤回；恢复记录已保留");
                     ArrayList<ContentProviderOperation> ops = buildUndo(record, current);
                     try {
-                        ContentProviderResult[] results = app.getContentResolver().applyBatch(AUTHORITY, ops);
+                        requireRecordBackend(record);
+                        ContentProviderResult[] results = app.getContentResolver().applyBatch(record.authority, ops);
                         if (results == null || results.length != ops.size())
                             throw new IllegalStateException("宿主未确认恢复事务，恢复记录已保留");
                         applied = true;
@@ -355,12 +626,14 @@ final class CourseMutations {
                 }
                 record.state = "UNDO_APPLIED"; save(record);
                 if (!restored(record)) throw new IllegalStateException("恢复写入已提交，但结果核对不一致；恢复记录已保留");
+                if (record.message.startsWith("已调整")) UI.post(CourseMutations::queueAlarmRefresh);
                 if (TableCtx.hostCurrentTableId(app) == record.selectedAfter) select(record.selectedBefore);
                 record.state = "UNDONE"; save(record); pending = null;
                 CourseSyncGate.release(record.token);
                 UI.post(() -> { refresh(); UndoBar.finish(token, "已撤回"); });
             } catch (Exception error) {
                 record.state = applied ? "UNDO_NEEDS_REVIEW" : "UNDO_FAILED";
+                record.failure = error.getClass().getName() + ": " + rootMessage(error);
                 try { save(record); } catch (Exception journalError) { Logx.e(CourseAlarmEntry.TAG, "保存撤回失败记录", journalError); }
                 pending = null;
                 CourseSyncGate.release(record.token);
@@ -428,6 +701,9 @@ final class CourseMutations {
                 values.remove("_id");
                 for (String key : new ArrayList<>(values.keySet()))
                     if (Objects.equals(values.get(key), now.values.get(key))) values.remove(key);
+                // Unchanged reminder/association rows still participate in the assertions,
+                // but Android rejects an UPDATE operation with an empty ContentValues.
+                if (values.size() == 0) continue;
                 ops.add(ContentProviderOperation.newUpdate(sync(uri(row.table), values)).withSelection("_id=?", args(row.id))
                         .withValues(values).withExpectedCount(1).withYieldAllowed(false).build());
             }
@@ -481,8 +757,14 @@ final class CourseMutations {
     }
     private static boolean contains(List<Row> rows, String key) { for (Row row : rows) if (row.key().equals(key)) return true; return false; }
     private static void requireBackend() throws Exception {
-        if (HostEntities.local(app)) throw new IllegalStateException("此日历版本尚不支持安全的跨存储撤回，未写入数据");
+        backend = CalendarBackend.current(app);
+        backend.requireAtomicProvider(app);
         if (!CourseSyncGate.available()) throw new IllegalStateException("此日历版本缺少安全撤回的同步保护，未写入数据");
+    }
+    private static void requireRecordBackend(Record record) throws Exception {
+        requireBackend();
+        if (!backend.authority.equals(record.authority))
+            throw new IllegalStateException("日历存储已切换，操作已停止；恢复记录已保留");
     }
     private static final String[] CHILDREN = {"reminders", "extendedproperties", "attendees"};
     private static void snapshotEvent(List<Row> out, long id) throws Exception {
@@ -597,7 +879,10 @@ final class CourseMutations {
         if (table.equals("extendedproperties")) return new String[]{"event_id", "name", "value"};
         return new String[]{"event_id", "attendeeName", "attendeeEmail", "attendeeRelationship", "attendeeType", "attendeeStatus", "attendeeIdentity", "attendeeIdNamespace"};
     }
-    private static Uri uri(String table) { return Uri.parse("content://" + AUTHORITY + "/" + table); }
+    private static Uri uri(String table) {
+        if (backend == null) throw new IllegalStateException("日历存储尚未固定");
+        return backend.uri(table);
+    }
     private static Uri sync(Uri uri, ContentValues values) {
         return uri.buildUpon().appendQueryParameter("caller_is_syncadapter", "true")
                 .appendQueryParameter("account_name", Optional.ofNullable(values.getAsString("account_name")).orElse("oplus_course_default_calendar"))
@@ -615,7 +900,19 @@ final class CourseMutations {
         for (String key : new String[]{"refresh_course_table", "db_change_event", "db_change_calendar"}) HostBus.post(app.getClassLoader(), key);
         HostTablePage.refresh();
     }
+    private static void queueAlarmRefresh() {
+        UI.removeCallbacks(RESCHEDULE_ALARM);
+        UI.postDelayed(RESCHEDULE_ALARM, 400);
+    }
     private static String rootMessage(Throwable error) { while (error.getCause() != null) error = error.getCause(); return String.valueOf(error.getMessage()); }
+    private static String rescheduleError(Throwable error) {
+        while (error.getCause() != null) error = error.getCause();
+        String message = error.getMessage();
+        StackTraceElement[] trace = error.getStackTrace();
+        if (message != null && trace.length > 0 && trace[0].getClassName().startsWith("com.lcodexs.coursealarm.")
+                && message.codePoints().anyMatch(c -> c >= 0x4e00 && c <= 0x9fff)) return message;
+        return "未能确认调课保存结果，请返回课表检查当前安排。";
+    }
     private static File journalDir() { File dir = new File(app.getFilesDir(), "coursealarm-recovery"); dir.mkdirs(); return dir; }
     private static void save(Record record) throws Exception { saveJson(new File(journalDir(), record.token + ".json"), record.json()); }
     private static void saveJson(File path, JSONObject json) throws Exception {
@@ -644,19 +941,23 @@ final class CourseMutations {
         }
     }
     private static final class Record {
-        String token = UUID.randomUUID().toString(); String state; String message; long calendarId;
+        String authority = backend == null ? CalendarBackend.MERGED : backend.authority;
+        String token = UUID.randomUUID().toString(); String state; String message; String failure; long calendarId;
         volatile long deadline;
         long selectedBefore = TableCtx.hostCurrentTableId(app), selectedAfter;
         final List<Row> before = new ArrayList<>(), after = new ArrayList<>(), inserted = new ArrayList<>();
         Record(String message, long calendarId) { this.message = message; this.calendarId = calendarId; }
         JSONObject json() throws JSONException {
             JSONArray a = new JSONArray(), b = new JSONArray(), c = new JSONArray(); for (Row row : before) a.put(row.json()); for (Row row : after) b.put(row.json()); for (Row row : inserted) c.put(row.json());
-            return new JSONObject().put("version", 1).put("token", token).put("state", state).put("message", message).put("calendarId", calendarId)
-                    .put("selectedBefore", selectedBefore).put("selectedAfter", selectedAfter).put("before", a).put("after", b).put("inserted", c);
+            return new JSONObject().put("version", 2).put("authority", authority).put("token", token).put("state", state).put("message", message).put("calendarId", calendarId)
+                    .put("selectedBefore", selectedBefore).put("selectedAfter", selectedAfter).put("before", a).put("after", b).put("inserted", c)
+                    .put("failure", failure);
         }
         static Record parse(JSONObject json) throws JSONException {
             Record r = new Record(json.optString("message"), json.optLong("calendarId")); r.token = json.getString("token"); r.state = json.getString("state");
+            r.authority = json.optString("authority", CalendarBackend.MERGED);
             r.selectedBefore = json.optLong("selectedBefore", -1); r.selectedAfter = json.optLong("selectedAfter", -1);
+            r.failure = json.optString("failure", null);
             for (int i = 0; i < json.getJSONArray("before").length(); i++) r.before.add(Row.parse(json.getJSONArray("before").getJSONObject(i)));
             for (int i = 0; i < json.getJSONArray("after").length(); i++) r.after.add(Row.parse(json.getJSONArray("after").getJSONObject(i)));
             JSONArray inserted = json.optJSONArray("inserted");

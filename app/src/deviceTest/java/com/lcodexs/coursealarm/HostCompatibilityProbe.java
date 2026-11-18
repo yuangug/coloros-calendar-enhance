@@ -30,6 +30,21 @@ public final class HostCompatibilityProbe {
         JSONObject out = new JSONObject().put("hostApk",args[1]);
         check("navigation resolver",()->out.put("changeType",HostCompat.changeType(LOADER).toString()));
         check("native create resolver",()->out.put("createSheet",HostCompat.createSheet(LOADER).toString()));
+        check("native image cleanup resolver",()->{
+            Method sheet=HostCompat.createSheet(LOADER);
+            Method cleanup=sheet.getDeclaringClass().getDeclaredMethod(sheet.getName().equals("G")?"B":"I",android.content.Context.class);
+            require(Modifier.isStatic(cleanup.getModifiers()) && cleanup.getReturnType()==void.class,"wrong image cleanup");
+        });
+        check("image preview and completed import routing",()->{
+            require(TableEntryRoute.isPreview(new android.content.Intent().putExtra("course_list","[]")),"preview redirected");
+            require(!TableEntryRoute.isPreview(new android.content.Intent().putExtra("request_import_course",true)),"completed import stays on old page");
+        });
+        check("native last crop image resolver",()->{
+            Method getter=HostCompat.cropImageGetter(LOADER);
+            require(getter.getReturnType()==android.net.Uri.class && !Modifier.isStatic(getter.getModifiers()),"wrong crop getter");
+            require(Arrays.stream(getter.getDeclaringClass().getDeclaredFields())
+                    .anyMatch(f->Modifier.isStatic(f.getModifiers())&&f.getType()==getter.getDeclaringClass()),"missing helper singleton");
+        });
         check("week adapter resolver",()->out.put("weekAdapter",HostCompat.weekAdapter(LOADER).toString()));
         check("pager resolver",()->out.put("pagerCurrentItem",HostCompat.pagerCurrentItem(load(HostCompat.PAGER)).toString()));
         check("Kotlin callback identity and return value",()->{
@@ -67,6 +82,32 @@ public final class HostCompatibilityProbe {
             } finally {assets.close();}
         });
         check("event identity and recurrence serialization",HostCompatibilityProbe::eventRoundTrip);
+        check("course clipboard snapshot, relocation and conflicts",()->{
+            Object source=parse("com.android.calendar.card.schooltimetable.entity.CourseEntity",
+                    "{\"courseName\":\"Clipboard fixture\",\"teacher\":\"Teacher\",\"room\":\"Room\",\"note\":\"Keep note\",\"color\":3,\"dayOfWeek\":0,\"startNode\":0,\"endNode\":1,\"week\":[true,false,true],\"weekType\":2}");
+            Object event=load("com.coloros.calendar.foundation.databasedaolib.entities.EventEntity").getConstructor().newInstance();
+            HostEntities.set(event,"setId",4242L);HostEntities.set(event,"setCalendarId",73L);
+            HostEntities.set(source,"setEvent",event);
+            String snapshot=CourseClipboard.snapshot(LOADER,source);
+            HostEntities.set(source,"setCourseName","Changed after copy");
+            ((List<Boolean>)getter(source,"getWeek")).set(0,false);
+            String relocated=CourseClipboard.at(snapshot,2,2);
+            JSONObject json=new JSONObject(relocated);
+            Object pasted=parse(source.getClass().getName(),relocated);
+            require(getter(pasted,"getEvent")==null,"paste retained source event identity");
+            require(((Number)getter(event,"getId")).longValue()==4242L,"source ID mutated");
+            require("Clipboard fixture".equals(getter(pasted,"getCourseName")),"copy was not a snapshot");
+            require("Keep note".equals(getter(pasted,"getNote")),"note lost");
+            require(json.getInt("color")==3 && json.getInt("weekType")==2,"course appearance or week type lost");
+            Course copy=CourseClipboard.read(relocated);
+            require(copy.day==2 && copy.startNode==2 && copy.endNode==3,"paste location or duration wrong");
+            require(copy.weeks.get(1) && !copy.weeks.get(2) && copy.weeks.get(3),"copy weeks changed with original");
+            require(!CourseClipboard.overlaps(copy,CourseClipboard.read(snapshot)),"different day conflicts");
+            require(CourseClipboard.overlaps(copy,CourseClipboard.read(CourseClipboard.at(snapshot,2,3))),"overlap missed");
+            require(!CourseClipboard.overlaps(copy,CourseClipboard.read(CourseClipboard.at(snapshot,2,4))),"adjacent periods conflict");
+            Course otherWeek=CourseClipboard.read(relocated);otherWeek.weeks.clear();otherWeek.weeks.set(2);
+            require(!CourseClipboard.overlaps(copy,otherWeek),"different teaching weeks conflict");
+        });
         check("reminder and period serialization",HostCompatibilityProbe::tableRoundTrip);
         check("course entry and import-preview isolation",()->{
             android.content.Intent ordinary=new android.content.Intent().setClassName("com.coloros.calendar",TableEntryRoute.LEGACY);
@@ -76,7 +117,7 @@ public final class HostCompatibilityProbe {
             require(!TableEntryRoute.isTable(new android.content.Intent().setClassName("com.coloros.calendar",TableEntryRoute.MAIN)),"route recursion");
             for(String key:new String[]{"courseTimeEntity","course_list"})
                 require(TableEntryRoute.isPreview(new android.content.Intent(ordinary).putExtra(key,"{}")),"preview redirected: "+key);
-            for(String key:new String[]{"request_import_course","is_import_course"})
+            for(String key:new String[]{"is_import_course"})
                 require(TableEntryRoute.isPreview(new android.content.Intent(ordinary).putExtra(key,true)),"import continuation redirected: "+key);
             require(!TableEntryRoute.isPreview(new android.content.Intent(ordinary).putExtra("calendar_id",73L).putExtra("launch_type","2")),"manage entry excluded");
         });
@@ -88,6 +129,8 @@ public final class HostCompatibilityProbe {
             for(String invalid:new String[]{"P","PT","P6000SX","P-1S","PT2147483648H"})
                 require(CourseDuration.parseSeconds(invalid)==0,"invalid duration accepted");
         });
+        for (Map.Entry<String, ReschedulePlannerChecks.Check> scenario : ReschedulePlannerChecks.cases().entrySet())
+            check("reschedule / " + scenario.getKey(), scenario.getValue()::run);
         out.put("passed",errors.length()==0).put("checksPassed",checked).put("errors",errors);
         System.out.println("COURSEALARM_COMPAT_RESULT="+out);
         System.exit(errors.length()==0?0:1);

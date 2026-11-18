@@ -43,6 +43,8 @@ final class TableCtx {
     private static final int[] DEFAULT_START = {490, 545, 610, 665, 850, 905, 971, 1026, 1140, 1195};
     private static final int[] DEFAULT_END = {535, 590, 655, 710, 895, 950, 1016, 1071, 1185, 1240};
 
+    String backendAuthority;
+    private CalendarBackend backend;
     long calendarId = -1;
     String tableJson;
     String tableName = "";
@@ -62,6 +64,25 @@ final class TableCtx {
 
     int nodeCount() {
         return periodStart.length;
+    }
+
+    java.time.LocalDate termDate() {
+        return java.time.Instant.ofEpochMilli(termBeginMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+    }
+
+    java.time.LocalDate weekMonday() {
+        return termDate().with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+    }
+
+    java.time.LocalDate dateOf(int week, int day) {
+        return weekMonday().plusDays((week - 1) * 7L + day);
+    }
+
+    void requireTeachingDate(int week, int day) {
+        if (week < 1 || week > weekCount || day < 0 || day > 6)
+            throw new IllegalArgumentException("日期超出学期范围");
+        if (dateOf(week, day).isBefore(termDate()))
+            throw new IllegalArgumentException("所选日期早于开学日期，请重新选择周次和星期");
     }
 
     long classMillis(int week, int day, int node) {
@@ -116,11 +137,50 @@ final class TableCtx {
         TableCtx t = new TableCtx();
         t.hostCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
         ContentResolver cr = ctx.getContentResolver();
+        try {
+            t.backend = CalendarBackend.current(ctx);
+            t.backendAuthority = t.backend.authority;
+        } catch (Exception error) {
+            Logx.e(T, "无法确定课表存储", error);
+            return t;
+        }
         t.resolveCalendar(cr);
         t.readTableMetadata(cr);
         t.readCourses(cr);
         t.deriveTiming();
         Logx.i(T, "TableCtx " + t.dump());
+        return t;
+    }
+
+    /** Strict frozen metadata for editing: never guess a semester or period clock. */
+    static TableCtx fromMetadata(long id, String name, String json) throws Exception {
+        if (id <= 0) throw new IllegalArgumentException("没有选中的课表");
+        JSONObject o = new JSONObject(json);
+        TableCtx t = new TableCtx();
+        t.calendarId = id; t.tableName = name == null ? "" : name; t.tableJson = json;
+        t.termBeginMs = o.getLong("termBeginTime");
+        t.weekCount = o.getInt("weekNumberOfThisTerm");
+        if (t.termBeginMs <= 0 || t.weekCount < 1 || t.weekCount > 104)
+            throw new IllegalArgumentException("课表学期配置无效");
+        t.hasReminder = o.optBoolean("hasReminder", false);
+        int minutes = o.optInt("reminderTime", 15);
+        t.reminderMinutes = minutes >= 5 && minutes <= 60 && minutes % 5 == 0 ? minutes : 15;
+        JSONObject timing = o.getJSONObject("courseTableTime");
+        List<Integer> starts = new ArrayList<>(), ends = new ArrayList<>();
+        for (String key : new String[]{"morningCoursesList", "afternoontCoursesList", "nightCoursesList"}) {
+            JSONArray list = timing.getJSONArray(key);
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject period = list.getJSONObject(i);
+                int start = minuteOfDay(period.getLong("startTime")), end = minuteOfDay(period.getLong("endTime"));
+                if (start < 0 || end <= start || end > 1440 || (!ends.isEmpty() && start < ends.get(ends.size()-1)))
+                    throw new IllegalArgumentException("课表节次时间无效");
+                starts.add(start); ends.add(end);
+            }
+        }
+        if (starts.isEmpty()) throw new IllegalArgumentException("课表没有节次配置");
+        t.periodStart = new int[starts.size()]; t.periodEnd = new int[ends.size()];
+        for (int i = 0; i < starts.size(); i++) { t.periodStart[i] = starts.get(i); t.periodEnd[i] = ends.get(i); }
+        t.nativeTiming = true;
         return t;
     }
     /** 课程日历 id：账号含 course / 名字是「课程表」；优先选有课的 */
@@ -129,7 +189,7 @@ final class TableCtx {
     private void resolveCalendar(ContentResolver cr) {
         Cursor c = null;
         try {
-            c = cr.query(CalendarContract.Calendars.CONTENT_URI,
+            c = cr.query(backend.uri("calendars"),
                     new String[]{CalendarContract.Calendars._ID,
                             CalendarContract.Calendars.ACCOUNT_NAME,
                             CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
@@ -177,7 +237,7 @@ final class TableCtx {
 
     private void readTableMetadata(ContentResolver cr) {
         if (calendarId <= 0) return;
-        try (Cursor c = cr.query(CalendarContract.Calendars.CONTENT_URI,
+        try (Cursor c = cr.query(backend.uri("calendars"),
                 new String[]{"_id", "calendar_displayName", "calendars_json_extensions"},
                 null, null, null)) {
             if (c == null) return;
@@ -249,7 +309,7 @@ final class TableCtx {
         Cursor c = null;
         java.util.LinkedHashMap<Long, Integer> perCal = new java.util.LinkedHashMap<>();
         try {
-            c = cr.query(EVENTS_URI, new String[]{
+            c = cr.query(backend.uri("events"), new String[]{
                     "_id", "calendar_id", "title", "dtstart", "duration", "rrule",
                     "events_json_extensions", "hasExtendedProperties", "deleted"}, null, null, null);
             if (c == null) {
@@ -382,6 +442,8 @@ final class TableCtx {
     /** 复制一份只改开学基准的上下文（导入空表时用 ICS 里最早的课当第1周锚点） */
     TableCtx copyWithTerm(long termBegin) {
         TableCtx c = new TableCtx();
+        c.backend = this.backend;
+        c.backendAuthority = this.backendAuthority;
         c.calendarId = this.calendarId;
         c.calendarFromPrefs = this.calendarFromPrefs;
         c.tableJson = this.tableJson;

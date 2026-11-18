@@ -409,6 +409,7 @@ final class MainTabHook {
         if (save != null) module.hook(save).setId("main_course_save")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
                     Object result = chain.proceed();
+                    HostCourseImport.save((Activity)chain.getThisObject(), (android.os.Bundle)chain.getArg(0));
                     if (HostTablePage.activity() == chain.getThisObject() && HostTablePage.showing()) {
                         android.os.Bundle state = (android.os.Bundle)chain.getArg(0);
                         state.putBoolean(TableEntryRoute.OPEN, true);
@@ -421,6 +422,7 @@ final class MainTabHook {
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
                     Object result = chain.proceed();
                     android.os.Bundle state = (android.os.Bundle)chain.getArg(0);
+                    HostCourseImport.restore((Activity)chain.getThisObject(), state);
                     if (state != null && state.getBoolean(TableEntryRoute.OPEN, false)) {
                         Activity activity = (Activity)chain.getThisObject();
                         Intent intent = activity.getIntent();
@@ -467,6 +469,9 @@ final class MainTabHook {
                     Object a0 = chain.getArg(0);
                     Object a1 = chain.getArg(1);
                     Object a2 = chain.getArg(2);
+                    if (chain.getThisObject() instanceof Activity
+                            && HostCourseImport.result((Activity)chain.getThisObject(), (Integer)a0, (Integer)a1, (Intent)a2))
+                        return null;
                     if (a0 instanceof Integer && (Integer) a0 == ThemeBg.REQ_PICK
                             && chain.getThisObject() instanceof Activity) {
                         Activity act = (Activity) chain.getThisObject();

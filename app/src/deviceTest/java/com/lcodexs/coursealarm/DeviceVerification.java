@@ -14,6 +14,7 @@ import java.util.*;
 /** Included only with -PcoursealarmVerification. App-private command/response files. */
 public final class DeviceVerification {
     static Context app; static String lastToken;
+    static DragSession lastDrag;
     static final Handler UI=new Handler(Looper.getMainLooper());
     static JSONObject pageInfo() throws Exception {
         java.lang.reflect.Field field=HostTablePage.class.getDeclaredField("page");field.setAccessible(true);
@@ -36,7 +37,76 @@ public final class DeviceVerification {
     static Activity activity()throws Exception{java.lang.reflect.Field field=UndoBar.class.getDeclaredField("resumed");field.setAccessible(true);Activity a=(Activity)((WeakReference<?>)field.get(null)).get();if(a==null)throw new IllegalStateException("No resumed Activity");return a;}
     static void run(JSONObject input)throws Exception{
         String op=input.getString("op");
+        if(op.equals("gotoWeek")){HostTablePage.jumpTo(input.getInt("week"));reply(new JSONObject().put("requested",true),null);return;}
+        if(op.equals("fixtureCourse")||op.equals("nativeRepairCheck")) {
+            new Thread(()->{try{
+                long id=input.getLong("id"); Object event=HostEntities.event(app,id);
+                long calendarId=((Number)Ref.callName(event,"getCalendarId")).longValue();
+                TableCtx selected=TableCtx.load(app);
+                if(selected.calendarId!=calendarId||!selected.tableName.startsWith("CA_VERIFY_"))
+                    throw new IllegalStateException("Fixture operations require the selected dedicated test table");
+                String prefix="com.android.calendar.card.schooltimetable.entity.";
+                JSONObject json=new JSONObject((String)Ref.callName(event,"getEventsJsonExtensions"));
+                Object table=HostEntities.fromJson(app,prefix+"CourseTableEntity",selected.tableJson);
+                if(op.equals("nativeRepairCheck")) {
+                    Object course=HostEntities.fromJson(app,prefix+"CourseEntity",json.toString());HostEntities.set(course,"setEvent",event);
+                    Class<?> utils=Class.forName("com.android.calendar.card.schooltimetable.ScheduleTableUtils",false,app.getClassLoader());
+                    boolean invalid=(Boolean)utils.getMethod("isUselessCourse",course.getClass(),table.getClass()).invoke(null,course,table);
+                    reply(new JSONObject().put("id",id).put("invalid",invalid).put("marked",json.has("_coursealarm_preserved_time_v1")),null);return;
+                }
+                for(String key:new String[]{"dayOfWeek","startNode","endNode","note"})if(input.has(key))json.put(key,input.get(key));
+                if(input.has("weeks")){
+                    Set<Integer> weeks=new HashSet<>();JSONArray raw=input.getJSONArray("weeks");for(int i=0;i<raw.length();i++)weeks.add(raw.getInt(i));
+                    JSONArray mask=new JSONArray();for(int i=1;i<=selected.weekCount;i++)mask.put(weeks.contains(i));json.put("week",mask).put("weekType",0);
+                }
+                json.remove("_coursealarm_preserved_time_v1");
+                Object course=HostEntities.fromJson(app,prefix+"CourseEntity",json.toString());
+                Class<?> utils=Class.forName("com.android.calendar.card.schooltimetable.ScheduleTableUtils",false,app.getClassLoader());
+                utils.getMethod("buildEventByCourseEntity",long.class,table.getClass(),event.getClass(),course.getClass()).invoke(null,calendarId,table,event,course);
+                ContentValues all=HostEntities.values(app,"Event",event),values=new ContentValues();
+                for(String key:new String[]{"dtstart","dtend","duration","rrule","events_json_extensions"}){
+                    Object value=all.get(key);if(value==null)values.putNull(key);else if(value instanceof Number)values.put(key,((Number)value).longValue());else values.put(key,value.toString());
+                }
+                if(input.has("durationSeconds"))values.put("duration","P"+input.getInt("durationSeconds")+"S");
+                if(input.has("startOffsetSeconds"))values.put("dtstart",all.getAsLong("dtstart")+input.getInt("startOffsetSeconds")*1000L);
+                Uri uri=android.provider.CalendarContract.Events.CONTENT_URI;
+                int count=app.getContentResolver().update(uri,values,"_id=? AND calendar_id=?",new String[]{Long.toString(id),Long.toString(calendarId)});
+                UI.post(HostTablePage::refresh);reply(new JSONObject().put("updated",count),null);
+            }catch(Exception e){reply(null,e);}},"test-fixture-course").start();return;
+        }
         if(op.equals("pageInfo")) { reply(pageInfo(),null); return; }
+        if(op.equals("alarmEnabled")){boolean before=Prefs.enabled();if(input.has("enabled"))Prefs.setEnabled(input.getBoolean("enabled"));reply(new JSONObject().put("before",before).put("enabled",Prefs.enabled()),null);return;}
+        if(op.equals("tableSettings")) {
+            Activity owner=activity();long id=input.optLong("id",TableCtx.hostCurrentTableId(app));
+            if(input.optBoolean("open")){TableSettingsPage.open(owner);reply(new JSONObject().put("opened",true),null);return;}
+            new Thread(()->{try{
+                if(input.has("enabled"))TableSettings.setEnabled(app,id,input.getBoolean("enabled"));
+                TableSettings.State state=TableSettings.refresh(app,id);
+                reply(new JSONObject().put("id",id).put("enabled",state.enabled).put("identity",state.identity),null);
+            }catch(Exception error){reply(null,error);}},"verify-settings").start();return;
+        }
+        if(op.equals("captureDrag")||op.equals("reschedule")||op.equals("rescheduleUi")) {
+            Activity owner=activity();HostTableData data=HostTablePage.currentData();
+            if(data==null)throw new IllegalStateException("No table data");
+            Object selected=null;for(Object course:data.buildCourseList(app.getClassLoader())) {
+                Object id=Ref.callName(Ref.callName(course,"getEvent"),"getId");
+                if(id instanceof Number&&((Number)id).longValue()==input.getLong("id")){selected=course;break;}
+            }
+            if(selected==null)throw new IllegalStateException("Event not in current table");
+            DragSession.capture(owner,selected,input.optInt("week",HostTablePage.viewingWeekIndex0()+1),(session,error)->{
+                try{
+                    if(session==null)throw new IllegalStateException(error);lastDrag=session;
+                    if(op.equals("captureDrag")){reply(new JSONObject().put("eventId",session.eventId).put("calendarId",session.calendarId).put("week",session.displayedWeek),null);return;}
+                    if(op.equals("rescheduleUi")){RescheduleUi.show(owner,session,input.getInt("day"),input.getInt("start"),()->{});reply(new JSONObject().put("opened",true),null);return;}
+                    reschedule(owner,session,input);
+                }catch(Exception failure){reply(null,failure);}
+            });return;
+        }
+        if(op.equals("rescheduleFrozen")){if(lastDrag==null)throw new IllegalStateException("No captured session");reschedule(activity(),lastDrag,input);return;}
+        if(op.equals("tableCells")) { JSONArray tables=new JSONArray(); collectTables(HostTablePage.rootView(),tables); reply(new JSONObject().put("tables",tables),null); return; }
+        if(op.equals("providerSnapshot")) {
+            new Thread(()->{try{reply(providerSnapshot(input.optLong("id",TableCtx.hostCurrentTableId(app))),null);}catch(Exception e){reply(null,e);}}).start();return;
+        }
         if(op.equals("invalidatePage")) { HostTablePage.refresh();reply(pageInfo(),null);return; }
         if(op.equals("openCourseEntry")) {
             Activity current=activity();
@@ -131,6 +201,73 @@ public final class DeviceVerification {
         throw new IllegalArgumentException(op);
     }
     static String title(long id)throws Exception{try(Cursor c=app.getContentResolver().query(android.provider.CalendarContract.Events.CONTENT_URI,new String[]{"title"},"_id=? AND deleted=0",new String[]{Long.toString(id)},null)){return c!=null&&c.moveToFirst()?c.getString(0):null;}}
+    static void reschedule(Activity owner,DragSession session,JSONObject input)throws Exception {
+        RescheduleRequest.Scope scope=RescheduleRequest.Scope.valueOf(input.optString("scope","CURRENT_WEEK"));
+        RescheduleRequest request;
+        if(scope==RescheduleRequest.Scope.DAY){
+            List<Long> ids=new ArrayList<>();JSONArray selected=input.optJSONArray("ids");
+            if(selected==null)ids.add(session.eventId);else for(int i=0;i<selected.length();i++)ids.add(selected.getLong(i));
+            request=RescheduleRequest.day(session,input.optInt("sourceWeek",session.displayedWeek),input.optInt("sourceDay",session.source.course.day),input.getInt("targetWeek"),input.getInt("day"),ids);
+        }else{
+            BitSet weeks=new BitSet();JSONArray chosen=input.optJSONArray("weeks");if(chosen!=null)for(int i=0;i<chosen.length();i++)weeks.set(chosen.getInt(i));
+            int start=input.getInt("start");request=RescheduleRequest.range(session,scope,input.getInt("day"),start,input.optInt("end",start+session.source.course.endNode-session.source.course.startNode),weeks);
+        }
+        CourseMutations.reschedule(owner,request,result->{try{
+            lastToken=result.undoToken;
+            reply(inspect().put("success",result.success).put("message",result.message).put("token",result.undoToken),null);
+            if(result.success&&result.undoToken!=null&&input.optBoolean("autoUndo"))UI.postDelayed(()->CourseMutations.undo(result.undoToken),input.optInt("undoDelay",500));
+        }catch(Exception error){reply(null,error);}});
+    }
+    static void collectTables(android.view.View view,JSONArray out)throws Exception {
+        if(view==null || !view.isShown())return;
+        if(view.getClass().getName().equals("com.android.calendar.card.schooltimetable.view.TableView")){
+            android.graphics.Rect visible=new android.graphics.Rect();if(!view.getGlobalVisibleRect(visible))return;
+            int[] origin=new int[2];view.getLocationOnScreen(origin);
+            JSONObject table=new JSONObject().put("x",origin[0]).put("y",origin[1]).put("width",view.getWidth()).put("height",view.getHeight())
+                    .put("week",Ref.field(view,"currentWeek")).put("scrollY",Ref.field(view,"scrollY"))
+                    .put("cellHeight",Ref.field(view,"cellHeigt")).put("cellWidth",Ref.field(view,"cellWidth"))
+                    .put("startX",Ref.field(view,"contentStartX")).put("startY",Ref.field(view,"contentStartY"));
+            JSONArray courses=new JSONArray();Object list=Ref.field(view,"showingCourseList");
+            if(list instanceof List)for(Object course:(List<?>)list){
+                JSONObject item=new JSONObject(CourseClipboard.snapshot(app.getClassLoader(),course));
+                item.put("left",Ref.callName(course,"getMLeft")).put("top",Ref.callName(course,"getMTop"))
+                        .put("right",Ref.callName(course,"getMRight")).put("bottom",Ref.callName(course,"getMBottom"))
+                        .put("eventId",Ref.callName(Ref.callName(course,"getEvent"),"getId"));courses.put(item);
+            }
+            table.put("courses",courses);Object raw=Ref.field(view,"popupWindow");
+            if(raw instanceof android.widget.PopupWindow && ((android.widget.PopupWindow)raw).isShowing()) {
+                android.view.View content=((android.widget.PopupWindow)raw).getContentView();JSONArray buttons=new JSONArray();
+                for(String name:new String[]{"btn_copy","btn_delete"}){
+                    android.view.View button=content.findViewById(app.getResources().getIdentifier(name,"id",app.getPackageName()));
+                    int[] position=new int[2];button.getLocationOnScreen(position);
+                    buttons.put(new JSONObject().put("text",((android.widget.TextView)button).getText()).put("visible",button.getVisibility())
+                            .put("x",position[0]+button.getWidth()/2).put("y",position[1]+button.getHeight()/2));
+                }table.put("buttons",buttons);
+            }
+            Object callback=((WeakReference<?>)Ref.field(view,"mTableViewCallback")).get();
+            table.put("hasCopy",Ref.callName(callback,"getCopyCourse")!=null);
+            out.put(table);
+        }
+        if(view instanceof android.view.ViewGroup)for(int i=0;i<((android.view.ViewGroup)view).getChildCount();i++)collectTables(((android.view.ViewGroup)view).getChildAt(i),out);
+    }
+    static JSONObject providerSnapshot(long id)throws Exception{
+        JSONObject result=new JSONObject().put("calendarId",id);Set<Long> ids=new HashSet<>();
+        for(String table:new String[]{"calendars","events","reminders","extendedproperties","attendees"}){
+            JSONArray records=new JSONArray();
+            try(Cursor cursor=app.getContentResolver().query(Uri.parse("content://com.android.calendar/"+table),null,null,null,"_id ASC")){
+                if(cursor==null)throw new IllegalStateException("No cursor: "+table);
+                while(cursor.moveToNext()){
+                    String filter=table.equals("calendars")?"_id":table.equals("events")?"calendar_id":"event_id";
+                    long value=cursor.getLong(cursor.getColumnIndexOrThrow(filter));
+                    if(table.equals("calendars") || table.equals("events")){if(value!=id)continue;}else if(!ids.contains(value))continue;
+                    if(table.equals("events"))ids.add(cursor.getLong(cursor.getColumnIndexOrThrow("_id")));
+                    JSONObject row=new JSONObject();for(String column:cursor.getColumnNames()){
+                        int i=cursor.getColumnIndex(column);row.put(column,cursor.isNull(i)?JSONObject.NULL:cursor.getString(i));
+                    }records.put(row);
+                }
+            }result.put(table,records);
+        }return result;
+    }
     static JSONObject inspect()throws Exception{
         TableCtx t=TableCtx.load(app);JSONObject out=new JSONObject().put("calendarId",t.calendarId).put("name",t.tableName).put("courseCount",t.courses.size()).put("term",t.termBeginMs).put("weeks",t.weekCount).put("hasReminder",t.hasReminder).put("minutes",t.reminderMinutes).put("periodStart",new JSONArray(t.periodStart)).put("periodEnd",new JSONArray(t.periodEnd));
         JSONArray events=new JSONArray();try(Cursor c=app.getContentResolver().query(android.provider.CalendarContract.Events.CONTENT_URI,new String[]{"_id","calendar_id","title","deleted","hasAlarm","duration"},null,null,null)){while(c!=null&&c.moveToNext())if(c.getLong(1)==t.calendarId)events.put(new JSONObject().put("id",c.getLong(0)).put("title",c.getString(2)).put("deleted",c.getInt(3)).put("alarm",c.getInt(4)).put("duration",c.getString(5)));}

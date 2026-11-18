@@ -49,6 +49,27 @@ final class HostCompat {
         return result;
     }
 
+    static Method cropImageGetter(ClassLoader loader) throws ReflectiveOperationException {
+        Class<?> helper = Class.forName(CREATE_HELPER, false, loader);
+        Method getter = helper.getDeclaredMethod(createSheet(loader).getName().equals("G") ? "u" : "z");
+        if (Modifier.isStatic(getter.getModifiers()) || getter.getReturnType() != android.net.Uri.class)
+            throw new NoSuchMethodException("原生裁剪图片入口不兼容");
+        getter.setAccessible(true);
+        return getter;
+    }
+
+    static android.net.Uri lastCropImage(ClassLoader loader) throws ReflectiveOperationException {
+        Method getter = cropImageGetter(loader);
+        Class<?> helper = getter.getDeclaringClass();
+        for (Field field : helper.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && field.getType() == helper) {
+                field.setAccessible(true);
+                return (android.net.Uri)getter.invoke(field.get(null));
+            }
+        }
+        throw new NoSuchFieldException("原生课表导入实例不可用");
+    }
+
     static Constructor<?> weekAdapter(ClassLoader loader) throws ReflectiveOperationException {
         Class<?> activity = Class.forName(TABLE_ACTIVITY, false, loader);
         Class<?> base = Class.forName("androidx.recyclerview.widget.RecyclerView$Adapter", false, loader);

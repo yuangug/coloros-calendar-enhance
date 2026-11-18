@@ -111,6 +111,7 @@ final class HostTablePage {
     static void hide() {
         final Page p = page;
         if (p == null || p.root == null) return;
+        CourseDragController.cancelActive(p.act);
         p.rememberWeek();
         p.visible = false;
         p.root.animate().cancel();
@@ -122,6 +123,7 @@ final class HostTablePage {
         Page old = page;
         page = null;
         if (old == null) return;
+        TableViewBridge.release(old.act);
         old.visible = false;
         old.generation++;
         old.ui.removeCallbacksAndMessages(null);
@@ -450,6 +452,8 @@ final class HostTablePage {
             LOADER.execute(() -> {
                 ThemeBg.warm(act);
                 HostTableData d = HostTableData.load(act);
+                try { if (d.calendarId > 0) TableSettings.refresh(act, d.calendarId); }
+                catch (Exception error) { Logx.w(T, "课表交互设置未就绪: " + error); }
                 List<Object> result = d.buildCourseList(host);
                 act.runOnUiThread(() -> {
                     loading = false;
@@ -739,7 +743,7 @@ final class HostTablePage {
                 for (int i = 0; i < titles.size(); i++) {
                     // 照宿主的写法用 Builder（裸构造器缺 itemType/groupId，show() 会抛）
                     Object b = menuBuilder(itemCls);
-                    Ref.callName(b, "setId", i + 1);
+                    Ref.callName(b, "setId", MENU_IDS[i]);
                     Ref.callName(b, "setTitle", titles.get(i));
                     Ref.callName(b, "setGroupId", 1);
                     items.add(Ref.callName(b, "build"));
@@ -751,7 +755,7 @@ final class HostTablePage {
                         android.widget.AdapterView.OnItemClickListener.class);
                 if (set != null) {
                     set.invoke(win, (android.widget.AdapterView.OnItemClickListener)
-                            (parent, view, position, id) -> onMenuPick(position + 1));
+                            (parent, view, position, id) -> { if (position >= 0 && position < MENU_IDS.length) onMenuPick(MENU_IDS[position]); });
                 }
                 menuWindow = win;   // 持住引用，弹窗被 GC 会直接消失
                 Ref.callName(win, "show", anchor);
@@ -762,7 +766,9 @@ final class HostTablePage {
             }
         }
 
-        private static final String[] TITLES = {"创建课表", "课表管理", "分享课表", "课程提醒",
+        private static final int MENU_TABLE_SETTINGS = 11;
+        private static final int[] MENU_IDS = {1, 2, 3, 4, MENU_TABLE_SETTINGS, 5, 6, 7, 8, 9, 10};
+        private static final String[] TITLES = {"创建课表", "课表管理", "分享课表", "课程提醒", "课表设置",
                 "创建桌面快捷方式", "导入课表", "导出课表", "课表主题", "回到本周", "刷新课表"};
 
         private Object menuBuilder(Class<?> itemCls) throws Exception {
@@ -773,7 +779,7 @@ final class HostTablePage {
         private void fallbackMenu(View anchor) {
             PopupMenu pm = new PopupMenu(act, anchor);
             String[] titles = TITLES;
-            for (int i = 0; i < titles.length; i++) pm.getMenu().add(0, i + 1, i, titles[i]);
+            for (int i = 0; i < titles.length; i++) pm.getMenu().add(0, MENU_IDS[i], i, titles[i]);
             pm.setOnMenuItemClickListener(item -> {
                 onMenuPick(item.getItemId());
                 return true;
@@ -806,6 +812,9 @@ final class HostTablePage {
                     break;
                 case 4:
                     HostEntities.openReminder(act);
+                    break;
+                case MENU_TABLE_SETTINGS:
+                    TableSettingsPage.open(act);
                     break;
                 case 5:
                     addDesktopShortcut();
