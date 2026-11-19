@@ -41,8 +41,11 @@ final class HostTablePage {
     static final String TAG_SCRIM = "lspx_table_page_scrim";
 
     private static Page page;
-    private static final java.util.concurrent.ExecutorService LOADER =
-            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "lspx-table-load"));
+    private static final java.util.concurrent.ThreadPoolExecutor LOADER = new java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(),
+            r -> new Thread(r, "lspx-table-load"));
+    private static final java.util.concurrent.ExecutorService CANCELLER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "lspx-table-cancel"));
 
     private HostTablePage() {
     }
@@ -86,6 +89,7 @@ final class HostTablePage {
         }
         prepare(a);
         Page p = page;
+        if (p.firstShowAt == 0) p.firstShowAt = android.os.SystemClock.uptimeMillis();
         boolean reused = p.root != null;
         if (p.root == null) p.mount(host);
         else if (p.root.getParent() != host) {
@@ -101,7 +105,8 @@ final class HostTablePage {
         p.refreshForClockAndConfiguration();
         refreshIfTableChanged(a);
         if (p.dirty) p.reload();
-        else if (!p.loading && p.needsBind && p.data != null) p.bind(p.data, p.courses);
+        if (p.needsBind && p.data != null && p.data.sourceTableId == HostTableData.currentTableId(a)) p.bind(p.data, p.courses);
+        else if (!p.loading && p.loadFailed && p.pager == null) p.showEmpty("课表读取失败\n点这里重试");
         // HWUI may discard hidden foreground nodes. Record them before the next touch.
         invalidateTree(p.root);
         Logx.i(T, "tablepage: shown reused=" + reused + " loading=" + p.loading
@@ -126,6 +131,7 @@ final class HostTablePage {
         TableViewBridge.release(old.act);
         old.visible = false;
         old.generation++;
+        old.cancelLoad();
         old.ui.removeCallbacksAndMessages(null);
         if (old.root != null && old.root.getViewTreeObserver().isAlive())
             old.root.getViewTreeObserver().removeOnPreDrawListener(old.keepOnTop);
@@ -147,6 +153,7 @@ final class HostTablePage {
         if (now != page.selectedId) {
             Logx.i(T, "课表已切换（" + page.selectedId + " → " + now + "），重载页面");
             page.selectedId = now;
+            page.cancelLoad();
             page.viewWeekIndex = -1;   // 换课表 → 回到本周
             page.pager = null;
             if (page.pagerView != null) page.pagerView.setVisibility(View.INVISIBLE);
@@ -256,12 +263,20 @@ final class HostTablePage {
         List<Object> courses;
         int generation;
         boolean visible, loading, dirty = true, needsBind;
+        boolean refreshScheduled, loadFailed;
+        int loadCount, bindCount;
+        long lastLoadMs;
+        long firstLoadMs, maxLoadMs, firstShowAt;
+        LoadTask activeLoad;
         long selectedId;
         String themeKey;
         String boundDay;
         int boundConfiguration, boundCurrentWeek;
         final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
-        final Runnable refreshData = () -> { if ((visible || root == null) && dirty && page == this) reload(); };
+        final Runnable refreshData = () -> {
+            refreshScheduled = false;
+            if ((visible || root == null) && dirty && page == this) reload();
+        };
         final android.database.ContentObserver observer = new android.database.ContentObserver(ui) {
             @Override public void onChange(boolean selfChange) { markDirty(); }
         };
@@ -308,8 +323,15 @@ final class HostTablePage {
             rememberWeek();
             dirty = true;
             generation++;
-            ui.removeCallbacks(refreshData);
-            if (visible || root == null) ui.postDelayed(refreshData, visible ? 100 : 300);
+            scheduleRefresh();
+        }
+
+        private void scheduleRefresh() {
+            // A notification burst must not keep pushing the first read into the future.
+            if (!loading && !refreshScheduled && dirty && (visible || root == null)) {
+                refreshScheduled = true;
+                ui.postDelayed(refreshData, visible ? 100 : 300);
+            }
         }
 
         private String dayKey() {
@@ -368,7 +390,15 @@ final class HostTablePage {
             empty.setText("正在读取课表…");
             empty.setVisibility(View.VISIBLE);
             empty.setOnClickListener(v -> {
-                if (data == null || data.tableJson == null) {
+                if (loading) {
+                    if (activeLoad == null || !activeLoad.retryOffered) return;
+                    cancelLoad();
+                    reload();
+                    return;
+                }
+                if (loadFailed) {
+                    reload();
+                } else if (data == null || data.tableJson == null) {
                     CurriculumIo.showImportMenu(act);
                 } else {
                     reload();
@@ -445,33 +475,123 @@ final class HostTablePage {
         void reload() {
             if (loading) return;
             ui.removeCallbacks(refreshData);
+            refreshScheduled = false;
             loading = true;
             dirty = false;
-            final int gen = ++generation;
+            loadFailed = false;
+            loadCount++;
             if (empty != null) empty.setText("正在读取课表…");
-            LOADER.execute(() -> {
-                ThemeBg.warm(act);
-                HostTableData d = HostTableData.load(act);
-                try { if (d.calendarId > 0) TableSettings.refresh(act, d.calendarId); }
-                catch (Exception error) { Logx.w(T, "课表交互设置未就绪: " + error); }
-                List<Object> result = d.buildCourseList(host);
-                act.runOnUiThread(() -> {
-                    loading = false;
-                    if (page != this || act.isDestroyed()) return;
-                    if (gen != generation) {
-                        ui.removeCallbacks(refreshData);
-                        if (visible || root == null) ui.postDelayed(refreshData, visible ? 100 : 300);
-                        return;
-                    }
-                    data = d;
-                    courses = result;
-                    needsBind = true;
-                    if (visible) bind(d, courses);
-                });
-            });
+            LoadTask task = new LoadTask();
+            activeLoad = task;
+            ui.postDelayed(task.timeout, 10_000);
+            try { task.future = LOADER.submit(task); }
+            catch (Throwable error) { finishLoad(task, null, null, error); }
+        }
+
+        private final class LoadTask implements Runnable {
+            final android.os.CancellationSignal cancel = new android.os.CancellationSignal();
+            final long requestedId = HostTableData.currentTableId(act);
+            final long started = android.os.SystemClock.elapsedRealtime();
+            volatile String phase = "queued";
+            boolean retryOffered;
+            java.util.concurrent.Future<?> future;
+            final Runnable timeout = () -> {
+                if (activeLoad != this) return;
+                // A slow provider may be about to reply. Keep that live query and
+                // publish its result; restart only if the user actually asks us to.
+                retryOffered = true;
+                if (empty != null && empty.getVisibility() == View.VISIBLE)
+                    empty.setText("课表读取较慢，点这里重试");
+                Logx.w(T, "slow table read phase=" + phase);
+            };
+
+            void cancelWork() {
+                if (future != null) future.cancel(true);
+                LOADER.purge();
+                // Remote provider cancellation can block. Never perform that Binder call on UI.
+                CANCELLER.execute(cancel::cancel);
+            }
+
+            public void run() {
+                HostTableData loaded = null;
+                List<Object> result = null;
+                Throwable failure = null;
+                try {
+                    cancel.throwIfCanceled();
+                    phase = "provider";
+                    loaded = HostTableData.load(act, cancel);
+                    phase = "entities";
+                    result = loaded.buildCourseList(host);
+                    cancel.throwIfCanceled();
+                } catch (Throwable error) { failure = error; }
+                final HostTableData d = loaded;
+                final List<Object> rows = result;
+                final Throwable error = failure;
+                phase = "publish";
+                ui.post(() -> finishLoad(this, d, rows, error));
+            }
+        }
+
+        void cancelLoad() {
+            LoadTask old = activeLoad;
+            activeLoad = null;
+            loading = false;
+            if (old != null) {
+                ui.removeCallbacks(old.timeout);
+                old.cancelWork();
+            }
+        }
+
+        private void finishLoad(LoadTask task, HostTableData d, List<Object> result, Throwable error) {
+            if (activeLoad != task) return;
+            activeLoad = null;
+            loading = false;
+            ui.removeCallbacks(task.timeout);
+            lastLoadMs = android.os.SystemClock.elapsedRealtime() - task.started;
+            if (firstLoadMs == 0) firstLoadMs = lastLoadMs;
+            maxLoadMs = Math.max(maxLoadMs, lastLoadMs);
+            if (page != this || act.isDestroyed()) return;
+            long current = HostTableData.currentTableId(act);
+            if (current != task.requestedId || (d != null && d.sourceTableId != current)) {
+                dirty = true;
+                scheduleRefresh();
+                return;
+            }
+            if (error != null) {
+                loadFailed = true;
+                // An error is not an empty table. Keep a usable old page and offer a retry.
+                dirty = false;
+                Logx.e(T, "tablepage: read failed after " + lastLoadMs + "ms", error);
+                if (empty != null && (pager == null || data == null || data.sourceTableId != current))
+                    showEmpty("课表读取失败\n点这里重试");
+                else if (visible) CurriculumIo.toast(act, "课表刷新失败，请稍后重试");
+                return;
+            }
+            try {
+                if (d.calendarId > 0) TableSettings.refreshLoaded(act, d.calendarId, d.calendar,
+                        CalendarBackend.LOCAL.equals(d.backendAuthority));
+            } catch (Exception settingsError) {
+                TableSettings.invalidate(d.calendarId);
+                Logx.w(T, "课表交互设置未就绪: " + settingsError);
+            }
+            boolean unchanged = d.sameContents(data);
+            loadFailed = false;
+            rememberWeek();
+            data = d;
+            courses = result;
+            boolean clockChanged = !dayKey().equals(boundDay)
+                    || boundConfiguration != act.getResources().getConfiguration().hashCode();
+            needsBind |= !unchanged || pager == null || clockChanged;
+            if (visible && needsBind) bind(d, courses);
+            else if (visible) hideEmpty();
+            // Publish a complete same-table snapshot even if another notification arrived.
+            // A single follow-up read converges on the latest data without starving first paint.
+            scheduleRefresh();
+            Logx.i(T, "tablepage: read " + lastLoadMs + "ms unchanged=" + unchanged + " pending=" + dirty);
         }
 
         private void bind(HostTableData d, List<Object> courses) {
+            bindCount++;
             needsBind = false;
             boundDay = dayKey();
             boundConfiguration = act.getResources().getConfiguration().hashCode();
@@ -535,14 +655,8 @@ final class HostTablePage {
                             ? Math.max(0, Math.min(viewWeekIndex, Math.max(0, d.weekCount - 1)))
                             : d.currentWeekIndex0();
                     HostCompat.pagerCurrentItem(vp2).invoke(pv, idx, false);
-                    pv.setAlpha(0f);
-
                     content.addView(pv, new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-                    pv.post(() -> {
-                        pagerTo(pv, idx, false);
-                        pv.animate().alpha(1f).setDuration(120).start();
-                    });
                     Logx.i(T, "tablepage: 首屏定位 weekIndex=" + idx);
                     pagerView = pv;
                     pager = pv;
@@ -597,7 +711,9 @@ final class HostTablePage {
             viewWeekIndex = idx;
             pager = null; // Provider notifications must not replace the requested week with the old pager's position.
             Logx.i(T, "tablepage: jump week " + week + " (index " + idx + ") → 按目标周重建");
-            reload();
+            // Keep the host's alignment-safe pager rebuild, but reuse the loaded snapshot.
+            if (courses != null && data.sourceTableId == HostTableData.currentTableId(act)) bind(data, courses);
+            else reload();
         }
 
         /**

@@ -15,6 +15,24 @@ final class HostEntities {
     private static final String DAO = "com.coloros.calendar.foundation.databasedaolib.dao.";
     private static final String ENTITY = "com.coloros.calendar.foundation.databasedaolib.entities.";
 
+    /** One worker owns this ORM/cache; decode full rows without querying each ID again. */
+    static final class CursorReader {
+        private final Object orm;
+        private final Method fromCursor;
+        private final ClassLoader loader;
+
+        CursorReader(Context context) throws Exception {
+            loader = context.getClassLoader();
+            Class<?> cls = Class.forName("com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm", false, loader);
+            orm = cls.getConstructor().newInstance();
+            fromCursor = cls.getMethod("fromCursor", android.database.Cursor.class, Class.class);
+        }
+
+        Object read(android.database.Cursor cursor, String name) throws Exception {
+            return fromCursor.invoke(orm, cursor, Class.forName(ENTITY + name + "Entity", false, loader));
+        }
+    }
+
     static boolean local(Context context) throws Exception {
         Class<?> cls = Class.forName("com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil",
                 false, context.getClassLoader());

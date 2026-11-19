@@ -1965,6 +1965,22 @@
       "feature": "storage",
       "kind": "method",
       "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm",
+      "name": "<init>",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm",
+      "name": "fromCursor",
+      "descriptor": "(Landroid/database/Cursor;Ljava/lang/Class;)Ljava/lang/Object;",
+      "static": false
+    },
+    {
+      "feature": "storage",
+      "kind": "method",
+      "owner": "com.coloros.calendar.foundation.databasedaolib.orm.MicroOrm",
       "name": "toContentValues",
       "descriptor": "(Ljava/lang/Object;)Landroid/content/ContentValues;",
       "static": false
@@ -3803,6 +3819,22 @@
       "name": "buildMetaDataForCalendarEntity",
       "descriptor": "(Ljava/lang/String;Lcom/coloros/calendar/foundation/databasedaolib/entities/CalendarEntity;Z)Ljava/util/List;",
       "static": true
+    },
+    {
+      "feature": "Non-current-week badge contrast",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TableView",
+      "name": "drawNotThisWeekCourse",
+      "descriptor": "(Landroid/graphics/Paint;Landroid/graphics/Canvas;Landroid/graphics/RectF;)V",
+      "static": false
+    },
+    {
+      "feature": "Non-current-week badge contrast",
+      "kind": "method",
+      "owner": "com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes",
+      "name": "getTEXT_BG_COLOR_NOT_THIS_WEEK",
+      "descriptor": "()I",
+      "static": false
     }
   ],
   "resources": [

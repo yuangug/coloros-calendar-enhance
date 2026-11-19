@@ -44,7 +44,7 @@ final class Hooks {
         hookManageActivity(module, host);
         MainTabHook.install(module, host);
         // Device verification code is excluded from normal APKs.
-        try { Class.forName("com.lcodexs.coursealarm.DeviceVerification").getMethod("schedule", Context.class).invoke(null, app); }
+        try { Class.forName("com.lcodexs.coursealarm.DeviceVerification").getMethod("schedule", Context.class, XposedModule.class).invoke(null, app, module); }
         catch (ClassNotFoundException ignored) { }
         catch (Exception e) { Logx.e(T, "device verification setup", e); }
 

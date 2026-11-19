@@ -31,7 +31,10 @@ final class HostCreateSheet {
         try {
             Method target = HostCompat.createSheet(host);
             if (!target.getParameterTypes()[0].isInstance(a)) return false;
-            target.invoke(null, a, Boolean.FALSE);
+            // isCanCancel=false is the host's first-use setup mode: both cancelling
+            // the dialog and pressing its close button save a default timetable.
+            // The enhanced menu is an explicit create action, so dismissal must be inert.
+            target.invoke(null, a, Boolean.TRUE);
             Logx.i(T, "创建课表：已弹宿主原生面板 method=" + target.getName()
                     + "（拍照导入 / 相册导入 / 手动创建）");
             return true;

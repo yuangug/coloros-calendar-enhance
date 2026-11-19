@@ -16,6 +16,7 @@ final class CourseSurfaceRenderer {
     private static final WeakHashMap<ViewGroup, Header> HEADERS = new WeakHashMap<>();
     private static final ThreadLocal<Capture> CAPTURE = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> DRAWING_HEADER = new ThreadLocal<>();
+    private static final ThreadLocal<Integer> WEEK_BADGE_INK = new ThreadLocal<>();
     private static Method computeRect, drawHeader;
     private static Field highlightWeekdays;
     private static boolean failureLogged;
@@ -23,6 +24,7 @@ final class CourseSurfaceRenderer {
         Class<?> cls = Ref.cls(host, "com.android.calendar.card.schooltimetable.view.TableView");
         if (cls == null) return;
         installContentClip(module, cls);
+        installBadgeContrast(module, cls);
         if (Build.VERSION.SDK_INT < 33) return;
         computeRect = Ref.methodByArity(cls, "drawCourse$computeRectF", 2);
         drawHeader = Ref.methodOf(cls, "drawTopTitle", Canvas.class);
@@ -59,27 +61,42 @@ final class CourseSurfaceRenderer {
             Object course = chain.getArg(4);
             RectF rect = (RectF)computeRect.invoke(null, table, course);
             if (rect.width() < 1 || rect.height() < 1) return chain.proceed();
-            Card card;
-            try { card = session.card(course, rect); }
-            catch (Exception error) { fail(error); return chain.proceed(); }
-            Capture capture = new Capture(session.style != ThemeStore.STYLE_CLASSIC);
-            RecordingCanvas foreground = card.foreground.beginRecording(Math.max(1,(int)Math.ceil(rect.width())), Math.max(1,(int)Math.ceil(rect.height())));
+            RenderNode node = session.recording(course);
+            Capture capture = new Capture(session, course, rect, node);
+            RecordingCanvas foreground = node.beginRecording(Math.max(1,(int)Math.ceil(rect.width())), Math.max(1,(int)Math.ceil(rect.height())));
             foreground.translate(-rect.left, -rect.top);
             CAPTURE.set(capture);
             try {
                 Object[] args = new Object[]{chain.getArg(0),chain.getArg(1),foreground,chain.getArg(3),course,chain.getArg(5)};
                 return chain.proceed(args);
             } finally {
-                CAPTURE.remove(); capture.restore(); card.foreground.endRecording();
-                card.seen = capture.fills >= 2;
-                card.setVisibility(card.seen ? View.VISIBLE : View.INVISIBLE);
-                card.invalidate();
+                CAPTURE.remove(); capture.restore(); node.endRecording();
+                if (capture.card != null) {
+                    capture.card.seen = capture.fills >= 2;
+                    capture.card.setVisibility(capture.card.seen ? View.VISIBLE : View.INVISIBLE);
+                    capture.card.invalidate();
+                } else if (capture.fills >= 2) {
+                    // Material initialization failed. Keep the original opaque fills
+                    // and draw once, without replaying native hit-test bookkeeping.
+                    session.retainRecording(node);
+                    node.setPosition(0, 0, (int)Math.ceil(rect.width()), (int)Math.ceil(rect.height()));
+                    int save = canvas.save();
+                    canvas.translate(rect.left, rect.top); canvas.drawRenderNode(node);
+                    canvas.restoreToCount(save);
+                }
             }
         });
         Method color = Ref.methodOf(Paint.class, "setColor", int.class);
         module.hook(color).setId("course_surface_remove_fills").intercept(chain -> {
             Capture capture = CAPTURE.get();
             if (capture != null && capture.fills < 2) {
+                if (capture.fills == 0) {
+                    // The host only sets its fill paints AFTER rejecting hidden and
+                    // conflicting non-current-week courses. Never attach a material
+                    // View before that point. Material setup also uses Paint itself.
+                    CAPTURE.remove();
+                    try { capture.accept(); } finally { CAPTURE.set(capture); }
+                }
                 capture.fills++;
                 if (capture.suppressFills) { capture.colors.put((Paint)chain.getThisObject(),(Integer)chain.getArg(0)); return chain.proceed(new Object[]{0}); }
             }
@@ -103,6 +120,32 @@ final class CourseSurfaceRenderer {
         ViewParent parent = table.getParent();
         while (parent != null && parent != root) parent = parent.getParent();
         return parent == root;
+    }
+    private static void installBadgeContrast(XposedModule module, Class<?> tableClass) {
+        Class<?> tokens=Ref.cls(tableClass.getClassLoader(),"com.android.calendar.card.schooltimetable.view.TimeTableDimensionRes");
+        Method badge=Ref.methodOf(tableClass,"drawNotThisWeekCourse",Paint.class,Canvas.class,RectF.class);
+        Method text=Ref.methodOf(tokens,"getTEXT_COLOR_NOT_THIS_WEEK");
+        Method background=Ref.methodOf(tokens,"getTEXT_BG_COLOR_NOT_THIS_WEEK");
+        if(badge==null||text==null||background==null)return;
+        final Object instance;
+        try { instance=tokens.getField("INSTANCE").get(null); }
+        catch(ReflectiveOperationException error){fail(error);return;}
+        module.hook(badge).setId("course_week_badge_contrast")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain->{
+            View table=(View)chain.getThisObject();
+            if(!belongsToPage(table))return chain.proceed();
+            // This label sits on the host's own solid strip, not on the wallpaper.
+            // Keep the shared weak text token unchanged for weekday/date headers.
+            int color=((Number)background.invoke(instance)).intValue();
+            float brightness=(Color.red(color)*.299f+Color.green(color)*.587f+Color.blue(color)*.114f)/255f;
+            Integer previous=WEEK_BADGE_INK.get();
+            WEEK_BADGE_INK.set(brightness>=.5f?0xFF444449:0xFFE0E0E4);
+            try{return chain.proceed();}
+            finally{if(previous==null)WEEK_BADGE_INK.remove();else WEEK_BADGE_INK.set(previous);}
+        });
+        module.hook(text).setId("course_week_badge_ink").intercept(chain->{
+            Integer ink=WEEK_BADGE_INK.get();return ink==null?chain.proceed():ink;
+        });
     }
     private static void installContentClip(XposedModule module, Class<?> cls) {
         for (String name : new String[]{"drawContent", "drawLeftAxisArea", "drawCourse", "drawTouchRect", "drawDragArea"}) {
@@ -146,8 +189,18 @@ final class CourseSurfaceRenderer {
         return session != null && !session.released;
     }
     private static final class Capture {
-        final boolean suppressFills;
-        Capture(boolean suppressFills) { this.suppressFills = suppressFills; }
+        final Session session; final Object course; final RectF rect; final RenderNode node;
+        Card card; boolean suppressFills;
+        Capture(Session session, Object course, RectF rect, RenderNode node) {
+            this.session=session;this.course=course;this.rect=rect;this.node=node;
+        }
+        void accept() {
+            try {
+                card=session.card(course,rect,node);
+                session.retainRecording(node);
+                suppressFills=session.style!=ThemeStore.STYLE_CLASSIC;
+            } catch (Exception error) { fail(error); }
+        }
         int fills; final IdentityHashMap<Paint,Integer> colors=new IdentityHashMap<>(),alphas=new IdentityHashMap<>();
         void restore(){for(Map.Entry<Paint,Integer> entry:colors.entrySet()){entry.getKey().setColor(entry.getValue());if(alphas.containsKey(entry.getKey()))entry.getKey().setAlpha(alphas.get(entry.getKey()));}}
     }
@@ -161,6 +214,9 @@ final class CourseSurfaceRenderer {
         private final Matrix contentToRoot = new Matrix();
         private final Matrix headerToRoot = new Matrix();
         private final RectF viewport = new RectF();
+        private final RectF placement = new RectF();
+        private final Matrix placementTransform = new Matrix();
+        private RenderNode scratch;
         private int style;
         private boolean released;
         Session(View table, ViewGroup root) {
@@ -184,32 +240,49 @@ final class CourseSurfaceRenderer {
             if (style == ThemeStore.STYLE_LIQUID) scene.capture(tableView.getDrawingTime());
             for (Card card : cards.values()) card.seen=false;
         }
-        Card card(Object entity, RectF rect) throws Exception {
+        RenderNode recording(Object entity) {
+            Card existing=cards.get(entity);
+            if(existing!=null)return existing.foreground;
+            if(scratch==null)scratch=new RenderNode("course-candidate-foreground");
+            return scratch;
+        }
+        void retainRecording(RenderNode node) { if(scratch==node)scratch=null; }
+        Card card(Object entity, RectF rect, RenderNode node) throws Exception {
             View tableView=table.get();
             Card card=cards.get(entity);
+            boolean created=card==null;
             if (card==null) {
-                card=new Card(tableView.getContext(),style,scene); cards.put(entity,card); layer.addView(card);
+                card=new Card(tableView.getContext(),style,scene,node);
             }
             card.entity=entity; card.rect.set(rect); card.radius=Math.min(number(Ref.field(tableView,"courseRadius")),Math.min(rect.width(),rect.height())/2);
-            int courseColor=((Number)Ref.callName(entity,"getColor")).intValue();
-            if (card.paletteIndex!=courseColor) {
-                Class<?> cls=Class.forName("com.oplus.todotaskability.TodoColor",false,tableView.getContext().getClassLoader());
-                Object token=cls.getMethod("createByIndex",Integer.class).invoke(null,courseColor);
-                int colorId=((Number)Ref.callName(token,"getBgColor")).intValue();
-                card.courseColor=tableView.getResources().getColor(colorId,tableView.getContext().getTheme()); card.paletteIndex=courseColor;
+            try {
+                int courseColor=((Number)Ref.callName(entity,"getColor")).intValue();
+                if (card.paletteIndex!=courseColor || card.lastConfig!=tableView.getResources().getConfiguration().hashCode()) {
+                    Class<?> cls=Class.forName("com.oplus.todotaskability.TodoColor",false,tableView.getContext().getClassLoader());
+                    Object token=cls.getMethod("createByIndex",Integer.class).invoke(null,courseColor);
+                    int colorId=((Number)Ref.callName(token,"getBgColor")).intValue();
+                    card.courseColor=tableView.getResources().getColor(colorId,tableView.getContext().getTheme()); card.paletteIndex=courseColor;
+                }
+            } catch (Exception error) {
+                // A palette failure must not orphan an existing foreground node or
+                // discard a node that the original TableView will use for fallback.
+                fail(error);
             }
-            position(card); return card;
+            if(created){layer.addView(card);cards.put(entity,card);}
+            // Native material selects the host bottom bar's Drawable/framework
+            // branch through getRootView(), so configure it only after attaching.
+            position(card);
+            return card;
         }
         void end() {
             Iterator<Map.Entry<Object,Card>> iterator=cards.entrySet().iterator();
             while (iterator.hasNext()) { Card card=iterator.next().getValue();
-                if (!card.seen) { card.release();layer.removeView(card);iterator.remove(); } else position(card);
+                if (!card.seen) { card.release();layer.removeView(card);iterator.remove(); }
             }
-            layer.invalidate();
         }
         private void updateTransform() {
             View t=table.get(); ViewGroup r=root.get(); if(t==null||r==null) return;
-            layer.layout(0,0,r.getWidth(),r.getHeight());
+            if(layer.getWidth()!=r.getWidth()||layer.getHeight()!=r.getHeight()||layer.isLayoutRequested())layer.layout(0,0,r.getWidth(),r.getHeight());
             Matrix viewToRoot=new Matrix();t.transformMatrixToGlobal(viewToRoot);r.transformMatrixToLocal(viewToRoot);
             boolean moved = !headerToRoot.equals(viewToRoot);
             headerToRoot.set(viewToRoot);
@@ -231,13 +304,15 @@ final class CourseSurfaceRenderer {
             if (moved) header.invalidate();
         }
         private void position(Card card) {
-            RectF placement=new RectF(card.rect);
+            placement.set(card.rect);
             View tableView=table.get();
             boolean dragging=tableView!=null && CourseDragController.previewRect(tableView,card.entity,placement);
-            Matrix transform=new Matrix(contentToRoot);transform.preTranslate(placement.left,placement.top);
+            Matrix transform=placementTransform;transform.set(contentToRoot);transform.preTranslate(placement.left,placement.top);
             int width=Math.max(1,(int)Math.ceil(card.rect.width())),height=Math.max(1,(int)Math.ceil(card.rect.height()));
-            card.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
-            card.layout(0,0,width,height);
+            if(card.getWidth()!=width||card.getHeight()!=height||card.isLayoutRequested()){
+                card.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
+                card.layout(0,0,width,height);
+            }
             if(dragging){
                 float scroll=number(Ref.field(tableView,"scrollY"));
                 int top=Math.max(0,(int)Math.ceil(number(Ref.field(tableView,"contentStartY"))+scroll-placement.top));
@@ -272,11 +347,11 @@ final class CourseSurfaceRenderer {
             if (layer.getVisibility() == View.VISIBLE) {
                 if(style==ThemeStore.STYLE_LIQUID)scene.capture(t.getDrawingTime());
                 for(Card card:cards.values())position(card);
-                if(scene.animated())layer.postInvalidateOnAnimation();
+                if(style==ThemeStore.STYLE_LIQUID&&scene.animated())layer.postInvalidateOnAnimation();
             }
             return true;
         }
-        private void clearCards(){for(Card card:cards.values())card.release();cards.clear();layer.removeAllViews();}
+        private void clearCards(){for(Card card:cards.values())card.release();cards.clear();layer.removeAllViews();if(scratch!=null){scratch.discardDisplayList();scratch=null;}}
         void release(){if(released)return;released=true;clearCards();scene.release();View t=table.get();ViewGroup r=root.get();
             if(t!=null){t.removeOnAttachStateChangeListener(this);if(t.getViewTreeObserver().isAlive())t.getViewTreeObserver().removeOnPreDrawListener(this);}
             if(r!=null){
@@ -362,14 +437,14 @@ final class CourseSurfaceRenderer {
         @Override public boolean dispatchTouchEvent(MotionEvent event){return false;}
     }
     private static final class Card extends View {
-        final RenderNode foreground=new RenderNode("course-native-foreground");
+        final RenderNode foreground;
         final RectF rect=new RectF();final Matrix cardToRoot=new Matrix();
         Object entity;
         final GlassScene scene;final LiquidCardEffect liquid;final NativeCardMaterial nativeMaterial;
         int paletteIndex=Integer.MIN_VALUE,courseColor;float radius;boolean seen,mappingChanged=true;
         int lastWidth=-1,lastHeight=-1,lastGeneration=-1,lastConfig;float lastRadius=-1;
-        Card(Context context,int style,GlassScene scene)throws Exception{
-            super(context);this.scene=scene;setWillNotDraw(false);setClickable(false);setFocusable(false);setForceDarkAllowed(false);
+        Card(Context context,int style,GlassScene scene,RenderNode foreground)throws Exception{
+            super(context);this.scene=scene;this.foreground=foreground;setWillNotDraw(false);setClickable(false);setFocusable(false);setForceDarkAllowed(false);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             if(style==ThemeStore.STYLE_LIQUID){liquid=new LiquidCardEffect(getResources().getDisplayMetrics().density);nativeMaterial=null;}
             else if(style==ThemeStore.STYLE_NINGGUANG){liquid=null;nativeMaterial=new NativeCardMaterial(this);}
@@ -379,9 +454,12 @@ final class CourseSurfaceRenderer {
         void update()throws Exception{
             int config=getResources().getConfiguration().hashCode();
             boolean geometry=lastWidth!=getWidth()||lastHeight!=getHeight()||lastRadius!=radius;
-            if(!geometry&&!mappingChanged&&lastGeneration==scene.generation&&lastConfig==config
-                    && (liquid==null || !liquid.needsRecording()))return;
-            foreground.setPosition(0,0,getWidth(),getHeight());
+            boolean liquidChanged=liquid!=null&&(mappingChanged||lastGeneration!=scene.generation||liquid.needsRecording());
+            // Native COUI blur follows the View's RenderNode transform. Re-recording
+            // text/edges on every pager pixel only adds UI-thread work. Liquid glass
+            // does need a new source transform to keep its background sample aligned.
+            if(!geometry&&!liquidChanged&&lastConfig==config){mappingChanged=false;return;}
+            if(geometry)foreground.setPosition(0,0,getWidth(),getHeight());
             if(geometry)invalidateOutline();
             if(liquid!=null)liquid.update(getWidth(),getHeight(),radius,cardToRoot,scene);
             if(nativeMaterial!=null && (geometry || lastConfig!=config)){nativeMaterial.update(radius);setClipToOutline(true);invalidateOutline();}

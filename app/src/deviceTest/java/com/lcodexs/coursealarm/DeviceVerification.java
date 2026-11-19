@@ -24,19 +24,61 @@ public final class DeviceVerification {
             out.put("pager",System.identityHashCode(Ref.field(page,"pager")))
                     .put("loading",Ref.field(page,"loading")).put("dirty",Ref.field(page,"dirty"))
                     .put("generation",Ref.field(page,"generation")).put("week",HostTablePage.viewingWeekIndex0());
+            for(String key:new String[]{"loadCount","bindCount","lastLoadMs","firstLoadMs","maxLoadMs","loadFailed"})out.put(key,Ref.field(page,key));
+            Object active=Ref.field(page,"activeLoad");if(active!=null)out.put("phase",Ref.field(active,"phase"));
             HostTableData data=(HostTableData)Ref.field(page,"data");
             if(data!=null)out.put("calendarId",data.calendarId).put("courses",data.courseJsons.size());
         }
         return out;
     }
-    public static void schedule(Context context){app=context;UI.postDelayed(new Runnable(){public void run(){
+    public static void schedule(Context context, io.github.libxposed.api.XposedModule module) throws Exception {
+        if (Build.VERSION.SDK_INT >= 28 && !context.getPackageName().equals(android.app.Application.getProcessName())) return;
+        app=context;
+        TableLoadProbe.traceColdStart(context, module);
+        UI.postDelayed(new Runnable(){public void run(){
         File command=new File(app.getFilesDir(),"coursealarm-test-command.json");
-        if(command.exists())try{JSONObject input=new JSONObject(new String(java.nio.file.Files.readAllBytes(command.toPath()),StandardCharsets.UTF_8));command.delete();DeviceVerification.run(input);}catch(Exception e){reply(null,e);}
+        if(command.exists())try{JSONObject input=new JSONObject(new String(java.nio.file.Files.readAllBytes(command.toPath()),StandardCharsets.UTF_8));command.delete();DeviceVerification.run(input);}catch(Throwable e){reply(null,e);}
         UI.postDelayed(this,350);
     }},1000);}
     static Activity activity()throws Exception{java.lang.reflect.Field field=UndoBar.class.getDeclaredField("resumed");field.setAccessible(true);Activity a=(Activity)((WeakReference<?>)field.get(null)).get();if(a==null)throw new IllegalStateException("No resumed Activity");return a;}
     static void run(JSONObject input)throws Exception{
         String op=input.getString("op");
+        if(op.equals("loadChecks")){TableLoadProbe.run(input.optString("mode","burst"));return;}
+        if(op.equals("profileRead")) {
+            new Thread(()->{try{
+                JSONArray runs=new JSONArray();
+                for(int i=0;i<5;i++) {
+                    long start=SystemClock.elapsedRealtime();ThemeBg.warm(app);long theme=SystemClock.elapsedRealtime();
+                    HostTableData data=HostTableData.load(app);long read=SystemClock.elapsedRealtime();
+                    if(data.calendarId>0)TableSettings.refresh(app,data.calendarId);long settings=SystemClock.elapsedRealtime();
+                    List<Object> courses=data.buildCourseList(app.getClassLoader());long built=SystemClock.elapsedRealtime();
+                    runs.put(new JSONObject().put("themeMs",theme-start).put("readMs",read-theme)
+                            .put("settingsMs",settings-read).put("buildMs",built-settings).put("totalMs",built-start)
+                            .put("calendarId",data.calendarId).put("courses",courses.size()));
+                }
+                reply(new JSONObject().put("runs",runs),null);
+            }catch(Throwable error){reply(null,error);}},"verify-table-read").start();return;
+        }
+        if(op.equals("restoreVerifiedEvent")) {
+            new Thread(()->{try{
+                JSONObject expected=input.getJSONObject("expected"),original=input.getJSONObject("original");
+                long id=input.getLong("id"),calendarId=input.getLong("calendarId");
+                ContentValues values=new ContentValues();
+                for(String key:new String[]{"lastDate","events_json_extensions","dtstart","duration","event_update_time"}) {
+                    if(original.isNull(key))values.putNull(key);
+                    else if(key.equals("events_json_extensions")||key.equals("duration"))values.put(key,original.getString(key));
+                    else values.put(key,original.getLong(key));
+                }
+                int changed=app.getContentResolver().update(android.provider.CalendarContract.Events.CONTENT_URI,values,
+                        "_id=? AND calendar_id=? AND events_json_extensions=? AND dtstart=? AND event_update_time=?",
+                        new String[]{Long.toString(id),Long.toString(calendarId),expected.getString("events_json_extensions"),
+                                expected.getString("dtstart"),expected.getString("event_update_time")});
+                if(changed!=1)throw new IllegalStateException("Restore rejected: event changed after backup comparison");
+                UI.post(HostTablePage::refresh);
+                reply(new JSONObject().put("restored",id),null);
+            }catch(Exception error){reply(null,error);}},"verify-restore-event").start();return;
+        }
+        if(op.equals("renderChurn")){SurfacePerformanceProbe.sample(input.optInt("frames",30));return;}
         if(op.equals("gotoWeek")){HostTablePage.jumpTo(input.getInt("week"));reply(new JSONObject().put("requested",true),null);return;}
         if(op.equals("fixtureCourse")||op.equals("nativeRepairCheck")) {
             new Thread(()->{try{

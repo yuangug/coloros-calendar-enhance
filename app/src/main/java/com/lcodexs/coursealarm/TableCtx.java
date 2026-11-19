@@ -370,7 +370,7 @@ final class TableCtx {
      * 用现有课程反推：节次起止时间（分钟/日）+ 第1周周一 + 周数。
      * 一条课程 = 首周 day 的第 startNode 节开始，持续到 endNode 结束。
      */
-    private void deriveTiming() {
+    void deriveTiming() {
         if (nativeTiming) return;
         if (courses.isEmpty()) {
             if (termBeginMs <= 0) termBeginMs = mondayOfCurrentWeek();

@@ -64,6 +64,14 @@ final class TableSettings {
         return setEnabled(context, calendarId, previous == null ? null : previous.identity, enabled);
     }
 
+    /** Reuse the full calendar row already read by the page loader. */
+    static State refreshLoaded(Context context, long calendarId, Object calendar, boolean local) throws Exception {
+        String identity = identity(calendarId, calendar, local);
+        State result = new State(calendarId, identity, preferences(context).getBoolean(key(identity), false));
+        STATES.put(calendarId, result);
+        return result;
+    }
+
     /** A screen must pass the identity captured when it opened, so ID reuse cannot retarget a write. */
     static boolean setEnabled(Context context, long calendarId, String expectedIdentity, boolean enabled) throws Exception {
         State current = refresh(context, calendarId);
@@ -95,6 +103,10 @@ final class TableSettings {
     private static String identity(Context context, long calendarId) throws Exception {
         if (calendarId <= 0) throw new IllegalStateException("请先选择课表");
         Object calendar = HostEntities.calendar(context, calendarId);
+        return identity(calendarId, calendar, HostEntities.local(context));
+    }
+
+    private static String identity(long calendarId, Object calendar, boolean local) throws Exception {
         Object deleted = calendar.getClass().getMethod("getDeleted").invoke(calendar);
         if (deleted instanceof Number && ((Number) deleted).intValue() != 0)
             throw new IllegalStateException("课表已删除");
@@ -105,7 +117,7 @@ final class TableSettings {
             throw new IllegalStateException("当前日历不是可用的课表");
         // Update time, title and semester configuration are deliberately excluded: ordinary edits
         // must keep the preference. Undo restores these immutable identity fields with the row.
-        String raw = new org.json.JSONArray().put(HostEntities.local(context)).put(calendarId)
+        String raw = new org.json.JSONArray().put(local).put(calendarId)
                 .put(account).put(value(calendar, "getAccountType"))
                 .put(value(calendar, "getCreateTime")).put(value(calendar, "getLocalGlobalId")).toString();
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8));

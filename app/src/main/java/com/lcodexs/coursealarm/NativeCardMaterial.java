@@ -28,7 +28,13 @@ final class NativeCardMaterial {
         if (attached) return;
         Class<?> iface = Class.forName("com.coui.appcompat.OnMaterialStateChangeListener", false, loader);
         listener = Proxy.newProxyInstance(loader, new Class[]{iface}, (proxy, method, args) -> {
-            if (method.getName().equals("onMaterialStateChange")) { configuration = 0; update(radius); view.invalidate(); }
+            if (method.getName().equals("onMaterialStateChange")) {
+                configuration = 0;
+                // COUI calls back immediately during addView, before the new card
+                // has any geometry. position() applies the material after layout.
+                if (view.getWidth() > 0 && view.getHeight() > 0) update(radius);
+                view.invalidate();
+            }
             if (method.getName().equals("onDump") || method.getName().equals("toString")) return "CourseCardMaterial";
             if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
             if (method.getName().equals("equals")) return proxy == args[0];
@@ -79,7 +85,11 @@ final class NativeCardMaterial {
             view.setClipToOutline(true);
         }
         view.invalidateOutline();
-        if (edge != null) edge.setCallback(view);
+        if (edge != null) {
+            edge.setBounds(0, 0, width, height);
+            Ref.callName(edge, "setCornerRadius", radius);
+            edge.setCallback(view);
+        }
     }
     private void createEdge(Context context) throws Exception {
         Class<?> cls = Class.forName("com.coui.appcompat.shadowedge.COUIShadowEdgeDrawable", false, loader);
@@ -111,7 +121,7 @@ final class NativeCardMaterial {
     }
     void drawEdge(Canvas canvas) {
         if (edge == null) return;
-        edge.setBounds(0, 0, view.getWidth(), view.getHeight()); Ref.callName(edge, "setCornerRadius", radius); edge.draw(canvas);
+        edge.draw(canvas);
     }
     void release() {
         if (attached && listener != null) Ref.callName(manager, "removeOnMaterialStateChangedListener", listener);
