@@ -24,6 +24,7 @@ final class Scheduler {
     private static final String T = CourseAlarmEntry.TAG;
 
     static final String ACTION_TICK = "com.lcodexs.coursealarm.NIGHT_TICK";
+    private static final String ACTION_FOLLOW_UP = "com.lcodexs.coursealarm.FOLLOW_UP_";
     static final String TICK_RECEIVER = "com.android.calendar.alerts.AlertReceiver";
     private static final int REQ = 0x43410001;
 
@@ -45,18 +46,34 @@ final class Scheduler {
         return c.getTimeInMillis();
     }
 
-    private static PendingIntent tickIntent(Context ctx) {
-        Intent i = new Intent(ACTION_TICK);
+    private static PendingIntent tickIntent(Context ctx, AlarmPeriod period) {
+        Intent i = new Intent(period == null ? ACTION_TICK : ACTION_FOLLOW_UP + period.name());
         i.setClassName(ctx.getPackageName(), TICK_RECEIVER);
         i.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
-        return PendingIntent.getBroadcast(ctx, REQ, i,
+        return PendingIntent.getBroadcast(ctx, period == null ? REQ : REQ + 1 + period.ordinal(), i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    /** 幂等：任何时候调用都只保留「下一次 21:00」这一个 */
-    static void ensureScheduled(Context ctx) {
-        long at = nextTickMillis();
-        PendingIntent pi = tickIntent(ctx);
+    static AlarmPeriod followUpPeriod(String action) {
+        for (AlarmPeriod period : AlarmPeriod.values()) {
+            if ((ACTION_FOLLOW_UP + period.name()).equals(action)) return period;
+        }
+        return null;
+    }
+
+    static void update(Context ctx) {
+        if (Prefs.anyAlarmEnabled()) arm(ctx, null, nextTickMillis());
+        else cancel(ctx, null);
+    }
+
+    /** Revisit a date-less alarm when today's airing has passed, without touching the other session. */
+    static void followUp(Context ctx, AlarmPeriod period, long at) {
+        if (at > 0) arm(ctx, period, at);
+        else cancel(ctx, period);
+    }
+
+    private static void arm(Context ctx, AlarmPeriod period, long at) {
+        PendingIntent pi = tickIntent(ctx, period);
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) {
             Logx.w(T, "AlarmManager null");
@@ -64,7 +81,7 @@ final class Scheduler {
         }
         try {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-            Logx.i(T, "nightly tick armed at " + fmt(at) + " (" + (at - System.currentTimeMillis()) / 60000 + " min later)");
+            Logx.i(T, "alarm planning tick " + period + " armed at " + fmt(at));
         } catch (SecurityException se) {
             Logx.w(T, "exact alarm denied, fallback to inexact: " + se);
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
@@ -73,11 +90,10 @@ final class Scheduler {
         }
     }
 
-    static void cancel(Context ctx) {
+    private static void cancel(Context ctx, AlarmPeriod period) {
         try {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-            if (am != null) am.cancel(tickIntent(ctx));
-            Logx.i(T, "nightly tick cancelled");
+            if (am != null) am.cancel(tickIntent(ctx, period));
         } catch (Throwable t) {
             Logx.w(T, "cancel tick failed: " + t);
         }

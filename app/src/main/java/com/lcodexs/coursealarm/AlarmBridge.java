@@ -29,8 +29,6 @@ import java.util.List;
 final class AlarmBridge {
     private static final String T = CourseAlarmEntry.TAG;
 
-    static final String LABEL_PREFIX = "课程闹钟 ";
-
     private static final Uri AI_URI = Uri.parse("content://com.coloros.alarmclock.ai");
 
     /**
@@ -67,24 +65,25 @@ final class AlarmBridge {
     private AlarmBridge() {
     }
 
-    /** 时钟里当前的闹钟（读不到返回空表，不抛） */
+    /** A failed lookup must not be treated as an empty clock. */
     static List<Existing> list(Context ctx) {
         List<Existing> out = new ArrayList<>();
         try {
             Bundle res = ctx.getContentResolver().call(AI_URI, "get_alarm_list", "", null);
-            if (res == null) return out;
+            if (res == null) return null;
             Object idsObj = res.get("alarm_id_list");
             Object hoursObj = res.get("alarm_hour_list");
             Object minsObj = res.get("alarm_min_list");
             Object labelsObj = res.get("alarm_label_list");
+            if (idsObj == null && labelsObj == null && res.getInt("result", -1) == 1) return out;
 
             long[] ids = asLongs(idsObj);
             int[] hours = asInts(hoursObj);
             int[] mins = asInts(minsObj);
             String[] labels = asStrings(labelsObj);
-            if (ids == null) {
+            if (ids == null || (ids.length > 0 && (labels == null || labels.length != ids.length))) {
                 Logx.w(T, "list: alarm_id_list type=" + (idsObj == null ? "null" : idsObj.getClass()));
-                return out;
+                return null;
             }
             for (int i = 0; i < ids.length; i++) {
                 Existing e = new Existing();
@@ -97,30 +96,27 @@ final class AlarmBridge {
             Logx.i(T, "list: " + out.size() + " alarms");
         } catch (Throwable t) {
             Logx.e(T, "list alarms failed: " + t);
+            return null;
         }
         return out;
     }
 
     /**
      * 删掉我们以前设过的（按 message 前缀，绝不动用户自己的闹钟）。
-     * 直接对 alarms 表做一次批量 delete —— 比遍历 get_alarm_list 稳（那个 Bundle 里数组类型会变）。
+     * Use the clock's deletion API so it removes the ringing schedule as well as its row.
      */
-    static int deleteOurs(Context ctx) {
+    static int deleteOurs(Context ctx, AlarmPeriod period, long keepId) {
         int total = 0;
-        ContentResolver cr = ctx.getContentResolver();
-        for (Uri u : ALARM_TABLES) {
-            try {
-                int n = cr.delete(u, "message LIKE ?", new String[]{LABEL_PREFIX + "%"});
-                if (n > 0) {
-                    Logx.i(T, "deleteOurs removed " + n + " via " + u);
-                    total += n;
-                }
-            } catch (Throwable t) {
-                Logx.w(T, "deleteOurs via " + u + " failed: " + t);
-            }
+        boolean failed = false;
+        List<Existing> alarms = list(ctx);
+        if (alarms == null) return -1;
+        for (Existing alarm : alarms) {
+            if (alarm.id <= 0 || alarm.id == keepId || !period.ownsLabel(alarm.label)) continue;
+            if (delete(ctx, alarm.id)) total++;
+            else failed = true;
         }
         Logx.i(T, "deleteOurs removed=" + total);
-        return total;
+        return failed ? -1 : total;
     }
 
     static boolean delete(Context ctx, long id) {
@@ -138,8 +134,11 @@ final class AlarmBridge {
     }
 
     /** 建一个一次性闹钟，返回闹钟 id（失败 -1） */
-    static long addOnce(Context ctx, int hour, int minute, String label, boolean silent) {
+    static long addOnce(Context ctx, java.time.ZonedDateTime at, String label, boolean silent) {
+        int hour = at.getHour(), minute = at.getMinute();
         try {
+            if (!AlarmTime.nextClockOccurrence(java.time.Instant.now(), at.toLocalTime(), at.getZone())
+                    .equals(at.toInstant())) return -1;
             Bundle in = new Bundle();
             in.putInt(K_HOUR, hour);
             in.putInt(K_MIN, minute);
@@ -153,8 +152,17 @@ final class AlarmBridge {
             long id = -1;
             int result = res == null ? -99 : res.getInt("result", -99);
             if (res != null) {
-                long[] ids = res.getLongArray("alarm_id_list");
-                if (ids != null && ids.length > 0) id = ids[ids.length - 1];
+                long[] ids = asLongs(res.get("alarm_id_list"));
+                if (result == 1 && ids != null && ids.length == 1) {
+                    id = ids[0];
+                    long[] times = asLongs(res.get("alarm_time_list"));
+                    if (id > 0 && times != null && times.length == 1 && times[0] > 0
+                            && times[0] / 60000 != at.toInstant().toEpochMilli() / 60000) {
+                        Logx.w(T, "clock returned an unexpected alarm date for #" + id);
+                        delete(ctx, id);
+                        return -1;
+                    }
+                }
             }
             Logx.i(T, "addOnce " + String.format("%02d:%02d", hour, minute)
                     + " label='" + label + "' silent=" + silent
@@ -223,6 +231,12 @@ final class AlarmBridge {
 
     private static long[] asLongs(Object o) {
         if (o instanceof long[]) return (long[]) o;
+        if (o instanceof int[]) {
+            int[] a = (int[]) o;
+            long[] r = new long[a.length];
+            for (int i = 0; i < a.length; i++) r[i] = a[i];
+            return r;
+        }
         if (o instanceof Object[]) {
             Object[] a = (Object[]) o;
             long[] r = new long[a.length];

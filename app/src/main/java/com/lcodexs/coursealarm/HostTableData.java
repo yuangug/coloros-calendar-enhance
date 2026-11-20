@@ -3,6 +3,7 @@ package com.lcodexs.coursealarm;
 import android.content.Context;
 import android.content.ContentProviderClient;
 import android.database.Cursor;
+import android.database.ContentObserver;
 import android.os.CancellationSignal;
 import android.os.SystemClock;
 import org.json.JSONObject;
@@ -11,10 +12,43 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Objects;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.Executors;
 
 /** A page snapshot: two provider queries, full host ORM entities, one frozen table identity. */
 final class HostTableData {
     private static final String T = CourseAlarmEntry.TAG;
+    private static final InFlightReads<ReadKey, HostTableData> READS = new InFlightReads<>(
+            Executors.newFixedThreadPool(2, task -> {
+                Thread thread = new Thread(task, "course-provider-read"); thread.setDaemon(true); return thread;
+            }), Executors.newCachedThreadPool(task -> {
+                Thread thread = new Thread(task, "course-provider-cancel"); thread.setDaemon(true); return thread;
+            }));
+    private static final Set<String> observed = new HashSet<>();
+    private static final ContentObserver changes = new ContentObserver(null) {
+        @Override public void onChange(boolean selfChange) { READS.invalidate(); }
+        @Override public void onChange(boolean selfChange, android.net.Uri uri) { READS.invalidate(); }
+    };
+    private static final class ReadKey {
+        final String packageName, authority;
+        final int uid;
+        final long tableId;
+        final ClassLoader loader;
+        final Class<?> resolverType;
+        ReadKey(String packageName, int uid, ClassLoader loader, String authority, long tableId, Class<?> resolverType) {
+            this.packageName = packageName; this.uid = uid; this.loader = loader;
+            this.authority = authority; this.tableId = tableId; this.resolverType = resolverType;
+        }
+        @Override public int hashCode() { return Objects.hash(packageName, uid, loader, authority, tableId, resolverType); }
+        @Override public boolean equals(Object value) {
+            if (!(value instanceof ReadKey)) return false;
+            ReadKey other = (ReadKey) value;
+            return uid == other.uid && tableId == other.tableId && loader == other.loader && resolverType == other.resolverType
+                    && packageName.equals(other.packageName) && authority.equals(other.authority);
+        }
+    }
     String backendAuthority;
     String tableJson;
     final List<String> courseJsons = new ArrayList<>();
@@ -39,8 +73,47 @@ final class HostTableData {
     static HostTableData load(Context ctx) throws Exception { return load(ctx, new CancellationSignal()); }
 
     static HostTableData load(Context ctx, CancellationSignal cancel) throws Exception {
+        cancel.throwIfCanceled();
         long selected = currentTableId(ctx);
         CalendarBackend backend = CalendarBackend.current(ctx);
+        HostTableData result;
+        if (observeChanges(ctx, backend)) {
+            CancellationSignal sharedCancel = new CancellationSignal();
+            ReadKey key = new ReadKey(ctx.getPackageName(), ctx.getApplicationInfo().uid, ctx.getClassLoader(),
+                    backend.authority, selected, ctx.getContentResolver().getClass());
+            try {
+                result = READS.read(key, () -> readWithProviderRetry(ctx, sharedCancel, selected, backend),
+                        sharedCancel::cancel, () -> cancel.isCanceled() || Thread.currentThread().isInterrupted());
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new android.os.OperationCanceledException();
+            } catch (CancellationException cancelled) { throw new android.os.OperationCanceledException(); }
+        } else result = readWithProviderRetry(ctx, cancel, selected, backend);
+        cancel.throwIfCanceled();
+        backend.requireCurrent(ctx);
+        if (selected != currentTableId(ctx)) throw new IllegalStateException("当前课表已切换，请重新读取");
+        CourseLiveCoordinator.tableLoaded(result);
+        return result;
+    }
+
+    private static boolean observeChanges(Context ctx, CalendarBackend backend) {
+        String key = ctx.getApplicationInfo().uid + ":" + backend.authority;
+        synchronized (observed) {
+            if (observed.contains(key)) return true;
+            try {
+                // No Handler: invalidate on callback delivery, without waiting for a busy UI thread.
+                ctx.getContentResolver().registerContentObserver(backend.uri("events"), true, changes);
+                ctx.getContentResolver().registerContentObserver(backend.uri("calendars"), true, changes);
+                observed.add(key); return true;
+            } catch (RuntimeException unavailable) {
+                // Without write invalidation, a later caller must not join an older pending read.
+                Logx.w(T, "table read sharing unavailable: " + unavailable); return false;
+            }
+        }
+    }
+
+    private static HostTableData readWithProviderRetry(Context ctx, CancellationSignal cancel, long selected,
+                                                      CalendarBackend backend) throws Exception {
         try {
             return read(ctx, cancel, selected, backend);
         } catch (android.os.DeadObjectException providerRestarted) {

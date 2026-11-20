@@ -1,117 +1,159 @@
 package com.lcodexs.coursealarm;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
-
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-/**
- * 真正的活：查明天上午**最早一节课** -> 清掉旧的「课程闹钟」-> 在时钟里建**一个**一次性闹钟 -> 发通知。
- * 日历进程里跑（数据/权限/通知都在这个进程）。
- *
- * 「一天只叫一次」：CourseRepo 已经在数据层收敛成最多一个 Slot（1-2 节与 3-4 节都有课时只留 1-2 节），
- * 这里即便拿到多个也只按最早的那个建，绝不建第二个。
- */
+/** Serializes all writes to the Clock provider, including closing either of the two switches. */
 final class NightJob {
     private static final String T = CourseAlarmEntry.TAG;
+    private static final ExecutorService WORK = Executors.newSingleThreadExecutor(
+            r -> new Thread(r, "course-alarm-planning"));
+    private static final DateTimeFormatter DISPLAY = DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.US);
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm", Locale.US);
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static Context hostApp;
+    private static final Runnable REPLAN_TABLE = () -> runAsync(hostApp, "course-table-changed");
+    private static final SharedPreferences.OnSharedPreferenceChangeListener TABLE_CHANGED = (prefs, key) -> {
+        if ("sp_key_current_course_table".equals(key)) onTableChanged();
+    };
 
-    private static volatile long lastRunAt = 0L;
+    private NightJob() {}
 
-    private NightJob() {
+    static void observeTableSelection(Context ctx) {
+        hostApp = ctx;
+        for (String file : TableCtx.CURRENT_TABLE_PREFS) {
+            ctx.getSharedPreferences(file, Context.MODE_PRIVATE).registerOnSharedPreferenceChangeListener(TABLE_CHANGED);
+        }
     }
 
-    /** 后台线程执行，避免在 onReceive / 点击回调里做 IO */
+    static void onTableChanged() {
+        MAIN.removeCallbacks(REPLAN_TABLE);
+        if (hostApp != null && Prefs.anyAlarmEnabled()) MAIN.postDelayed(REPLAN_TABLE, 400);
+    }
+
     static void runAsync(Context ctx, String reason) {
-        runAsync(ctx, reason, 1);
+        enqueue(ctx, reason, null, false, null);
     }
 
-    /** dayOffset=1 明天（正式行为）；0 今天（仅调试用，见 Hooks 里的 lspx_days extra） */
-    static void runAsync(Context ctx, String reason, int dayOffset) {
+    static void runAsync(Context ctx, String reason, AlarmPeriod period) {
+        runAsync(ctx, reason, period, null);
+    }
+
+    static void runAsync(Context ctx, String reason, AlarmPeriod period, Runnable onCompleted) {
+        enqueue(ctx, reason, period, false, onCompleted);
+    }
+
+    static void runTodayAsync(Context ctx) {
+        enqueue(ctx, "debug-today", null, true, null);
+    }
+
+    private static void enqueue(Context ctx, String reason, AlarmPeriod requested, boolean todayOnly,
+                                Runnable onCompleted) {
         Context app = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
-        new Thread(() -> {
+        WORK.execute(() -> {
             try {
-                run(app, reason, dayOffset);
-            } catch (Throwable t) {
-                Logx.e(T, "night job crashed (" + reason + ")", t);
+                run(app, reason, requested, todayOnly);
+            } catch (Exception error) {
+                Logx.e(T, "alarm planning failed: " + reason, error);
+            } finally {
+                if (onCompleted != null) MAIN.post(onCompleted);
             }
-        }, "lspx-course-alarm").start();
+        });
     }
 
-    static void run(Context ctx, String reason) {
-        run(ctx, reason, 1);
+    private static void run(Context ctx, String reason, AlarmPeriod requested, boolean todayOnly) {
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate today = LocalDate.now(zone);
+        CourseRepo.Sessions courses = null;
+        boolean queried = false;
+        for (AlarmPeriod period : AlarmPeriod.values()) {
+            if (requested != null && requested != period) continue;
+            try {
+                if (!Prefs.enabled(period)) {
+                    if (requested == period) {
+                        Scheduler.followUp(ctx, period, 0);
+                        Prefs.setLastResult(period, AlarmBridge.deleteOurs(ctx, period, -1) >= 0
+                                ? "已关闭" : "未能移除已有闹钟");
+                        Notifier.cancel(ctx, period);
+                    }
+                    continue;
+                }
+                if (!queried) {
+                    queried = true;
+                    courses = CourseRepo.read(ctx, today, zone);
+                }
+                if (courses == null) throw new IllegalStateException("无法读取课程安排");
+                if (period == AlarmPeriod.AFTERNOON && !courses.afternoonTimingKnown) {
+                    throw new IllegalStateException("无法读取下午节次");
+                }
+                if (!today.equals(LocalDate.now(zone)) || !zone.equals(ZoneId.systemDefault())) {
+                    enqueue(ctx, "date-changed-during-planning", requested, todayOnly, null);
+                    return;
+                }
+                reconcile(ctx, period, courses, zone, todayOnly);
+            } catch (Exception error) {
+                Logx.e(T, period.title + " planning failed: " + reason, error);
+                Prefs.setLastResult(period, error.getMessage() == null ? "排程失败" : error.getMessage());
+            }
+        }
     }
 
-    static void run(Context ctx, String reason, int dayOffset) {
-        lastRunAt = System.currentTimeMillis();
-        Logx.i(T, "==== night job start reason=" + reason
-                + " dayOffset=" + dayOffset
-                + " enabled=" + Prefs.enabled()
-                + " offset=" + Prefs.offset()
-                + " silent=" + Prefs.silent()
-                + " vibrate=" + Prefs.vibrate());
+    private static void reconcile(Context ctx, AlarmPeriod period, CourseRepo.Sessions courses,
+                                  ZoneId zone, boolean todayOnly) {
+        int offset = Prefs.offset(period);
+        Instant now = Instant.now();
+        CourseRepo.Slot today = courses.first(0, period);
+        CourseRepo.Slot tomorrow = todayOnly ? null : courses.first(1, period);
+        ZonedDateTime todayAt = today == null ? null : AlarmTime.forCourse(today.start(), offset, zone);
+        ZonedDateTime tomorrowAt = tomorrow == null ? null : AlarmTime.forCourse(tomorrow.start(), offset, zone);
+        AlarmTime.Plan plan = AlarmTime.plan(now, todayAt, tomorrowAt, Instant.ofEpochMilli(Scheduler.nextTickMillis()));
+        ZonedDateTime target = plan.target();
+        CourseRepo.Slot course = plan.useToday() ? today : tomorrow;
+        if (!todayOnly) {
+            Scheduler.followUp(ctx, period, plan.followUpMillis());
+        }
 
-        if (!Prefs.enabled()) {
-            Logx.i(T, "night job skip: 早晨闹钟未开启");
-            Prefs.setLastResult("未开启");
+        if (!plan.representable()) {
+            if (AlarmBridge.deleteOurs(ctx, period, -1) < 0) {
+                throw new IllegalStateException("未能移除已有闹钟");
+            }
+            Prefs.setLastResult(period, target != null ? "等待排程"
+                    : todayOnly ? "今天" + period.session + "无待设闹钟"
+                    : "明天" + period.session + "无课");
+            if (target == null && !todayOnly) {
+                Notifier.post(ctx, period, "未设置" + period.title, "明天" + period.session + "没有课。");
+            } else if (!todayOnly) {
+                Notifier.cancel(ctx, period);
+            }
             return;
         }
 
-        List<CourseRepo.Slot> slots = CourseRepo.morningSlots(ctx, dayOffset);
-        Logx.i(T, "day+" + dayOffset + " morning slots=" + slots.size() + "（一天只设一个闹钟）");
-        for (CourseRepo.Slot s : slots) {
-            int[] a = CourseRepo.alarmTimeFor(s, Prefs.offset());
-            Logx.i(T, "  slot 课 " + s.describe() + " → 闹钟 "
-                    + String.format(Locale.US, "%02d:%02d", a[0], a[1]));
+        String label = period.labelPrefix + CLOCK.format(course.start().atZone(zone));
+        boolean silent = Prefs.silent(period);
+        long id = AlarmBridge.addOnce(ctx, target, label, silent);
+        if (id <= 0) throw new IllegalStateException("时钟未能创建闹钟");
+        if (!AlarmBridge.tune(ctx, id, Prefs.vibrate(period), silent)) {
+            AlarmBridge.delete(ctx, id);
+            throw new IllegalStateException("未能应用闹钟响铃或振动设置");
         }
-
-        // 清掉上一轮我们自己设的（用户自己的闹钟不动）
-        int removed = AlarmBridge.deleteOurs(ctx);
-
-        if (slots.isEmpty()) {
-            Prefs.setLastResult("明天上午无课");
-            Notifier.postResult(ctx, slots, 0);
-            Logx.i(T, "==== night job end: 明天上午无课, removed=" + removed);
-            return;
+        if (AlarmBridge.deleteOurs(ctx, period, id) < 0) {
+            AlarmBridge.delete(ctx, id);
+            throw new IllegalStateException("未能替换已有闹钟");
         }
-
-        // 双保险：即使上游给了多条（旧数据/未来改动），也只按最早的那节建一个
-        CourseRepo.Slot first = slots.get(0);
-        for (CourseRepo.Slot s : slots) {
-            if (s.hour * 60 + s.minute < first.hour * 60 + first.minute) first = s;
-        }
-
-        int created = 0;
-        StringBuilder verify = new StringBuilder();
-        int[] a = CourseRepo.alarmTimeFor(first, Prefs.offset());
-        long id = AlarmBridge.addOnce(ctx, a[0], a[1], first.label(), Prefs.silent());
-        if (id > 0) {
-            created++;
-            AlarmBridge.tune(ctx, id, Prefs.vibrate(), Prefs.silent());
-            String line = AlarmBridge.inspect(ctx, id);
-            Logx.i(T, "verify " + line);
-            verify.append(line);
-        }
-        Prefs.setLastResult(String.format(Locale.US, "%s 建 %d 个，删旧 %d 个",
-                new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date()), created, removed));
-        Notifier.postResult(ctx, java.util.Collections.singletonList(first), created);
-        Logx.i(T, "==== night job end: created=" + created + " removed=" + removed
-                + " verify=" + verify);
-    }
-
-    static long lastRunAt() {
-        return lastRunAt;
-    }
-
-    /** 给 UI 用的一句话现状（不含 IO） */
-    static String shortState(Context ctx) {
-        return Prefs.lastResult();
-    }
-
-    static void postToUi(Runnable r) {
-        new Handler(Looper.getMainLooper()).post(r);
+        String time = DISPLAY.format(target);
+        String name = course.title() == null || course.title().isEmpty() ? "" : " · " + course.title();
+        String room = course.location() == null || course.location().isEmpty() ? "" : " @" + course.location();
+        Prefs.setLastResult(period, "已设置 " + time);
+        Notifier.post(ctx, period, "已设置" + period.title, time + name + room + "（课前 " + offset + " 分钟）");
     }
 }

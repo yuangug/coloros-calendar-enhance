@@ -30,44 +30,56 @@ final class Prefs {
     }
 
     static boolean enabled() {
-        SharedPreferences s = p();
-        return s != null && s.getBoolean(KEY_ENABLED, false);
+        return enabled(AlarmPeriod.MORNING);
     }
 
-    static int offset() {
+    static boolean anyAlarmEnabled() {
+        return enabled(AlarmPeriod.MORNING) || enabled(AlarmPeriod.AFTERNOON);
+    }
+
+    static boolean enabled(AlarmPeriod period) {
         SharedPreferences s = p();
-        int v = s == null ? DEFAULT_OFFSET : s.getInt(KEY_OFFSET, DEFAULT_OFFSET);
+        return s != null && s.getBoolean(period.prefPrefix + KEY_ENABLED, false);
+    }
+
+    static int offset(AlarmPeriod period) {
+        SharedPreferences s = p();
+        int v = s == null ? DEFAULT_OFFSET : s.getInt(period.prefPrefix + KEY_OFFSET, DEFAULT_OFFSET);
         return Math.max(0, Math.min(120, v));
     }
 
-    static boolean silent() {
+    static boolean silent(AlarmPeriod period) {
         SharedPreferences s = p();
-        return s != null && s.getBoolean(KEY_SILENT, false);
+        return s != null && s.getBoolean(period.prefPrefix + KEY_SILENT, false);
     }
 
-    static boolean vibrate() {
+    static boolean vibrate(AlarmPeriod period) {
         SharedPreferences s = p();
-        return s == null || s.getBoolean(KEY_VIBRATE, true);
+        return s == null || s.getBoolean(period.prefPrefix + KEY_VIBRATE, true);
     }
 
     static void setEnabled(boolean v) {
-        SharedPreferences s = p();
-        if (s != null) s.edit().putBoolean(KEY_ENABLED, v).apply();
+        setEnabled(AlarmPeriod.MORNING, v);
     }
 
-    static void setOffset(int v) {
+    static void setEnabled(AlarmPeriod period, boolean v) {
         SharedPreferences s = p();
-        if (s != null) s.edit().putInt(KEY_OFFSET, Math.max(0, Math.min(120, v))).apply();
+        if (s != null) s.edit().putBoolean(period.prefPrefix + KEY_ENABLED, v).apply();
     }
 
-    static void setSilent(boolean v) {
+    static void setOffset(AlarmPeriod period, int v) {
         SharedPreferences s = p();
-        if (s != null) s.edit().putBoolean(KEY_SILENT, v).apply();
+        if (s != null) s.edit().putInt(period.prefPrefix + KEY_OFFSET, Math.max(0, Math.min(120, v))).apply();
     }
 
-    static void setVibrate(boolean v) {
+    static void setSilent(AlarmPeriod period, boolean v) {
         SharedPreferences s = p();
-        if (s != null) s.edit().putBoolean(KEY_VIBRATE, v).apply();
+        if (s != null) s.edit().putBoolean(period.prefPrefix + KEY_SILENT, v).apply();
+    }
+
+    static void setVibrate(AlarmPeriod period, boolean v) {
+        SharedPreferences s = p();
+        if (s != null) s.edit().putBoolean(period.prefPrefix + KEY_VIBRATE, v).apply();
     }
 
     /** 教务系统上次打开的地址（网页登录版用） */
@@ -82,14 +94,14 @@ final class Prefs {
     }
 
     /** 记录上一次成功结果，用于设置页摘要与排错 */
-    static void setLastResult(String text) {
+    static void setLastResult(AlarmPeriod period, String text) {
         SharedPreferences s = p();
-        if (s != null) s.edit().putString("last_result", text).apply();
+        if (s != null) s.edit().putString(period.prefPrefix + "last_result", text).apply();
     }
 
-    static String lastResult() {
+    static String lastResult(AlarmPeriod period) {
         SharedPreferences s = p();
-        return s == null ? "" : s.getString("last_result", "");
+        return s == null ? "" : s.getString(period.prefPrefix + "last_result", "");
     }
 
     // ── 课表主题 ────────────────────────────────────────────────────────────

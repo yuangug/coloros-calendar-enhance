@@ -16,7 +16,7 @@ import io.github.libxposed.api.XposedModuleInterface;
 /**
  * modern libxposed API 102 入口。框架按 META-INF/xposed/java_init.list 加载本类。
  *
- * 静态作用域同时挂两个包：
+ * 日历与系统课程实时卡片；用户已手动启用时保留时钟兼容分支：
  *   com.coloros.calendar     —— 课程数据 + 课程提醒页注入 UI + 21:00 定时 + 建闹钟 + 通知
  *   com.coloros.alarmclock   —— 时钟侧兜底：强制「只响一次」并在日志里留命中证据
  */
@@ -24,6 +24,7 @@ public final class CourseAlarmEntry extends XposedModule {
     public static final String TAG = "COURSEALARM";
     public static final String PKG_CALENDAR = "com.coloros.calendar";
     public static final String PKG_CLOCK = "com.coloros.alarmclock";
+    public static final String PKG_SYSTEM_UI = "com.android.systemui";
 
     private static final AtomicBoolean ATTACH_HOOKED = new AtomicBoolean(false);
     private static final AtomicBoolean READY = new AtomicBoolean(false);
@@ -36,7 +37,7 @@ public final class CourseAlarmEntry extends XposedModule {
     @Override
     public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
         String pkg = param.getPackageName();
-        if (!PKG_CALENDAR.equals(pkg) && !PKG_CLOCK.equals(pkg)) return;
+        if (!PKG_CALENDAR.equals(pkg) && !PKG_CLOCK.equals(pkg) && !PKG_SYSTEM_UI.equals(pkg)) return;
         Logx.i(TAG, "package loaded " + pkg + " first=" + param.isFirstPackage());
         if (!param.isFirstPackage()) return;
         if (!ATTACH_HOOKED.compareAndSet(false, true)) return;
@@ -72,6 +73,11 @@ public final class CourseAlarmEntry extends XposedModule {
                 ? context.getApplicationContext() : context;
         final ClassLoader hostLoader = context.getClassLoader();
         final String pkg = app.getPackageName();
+
+        if (PKG_SYSTEM_UI.equals(pkg)) {
+            CourseNativeLiveCard.install(this, hostLoader, app);
+            return;
+        }
 
         Prefs.init(app);
 

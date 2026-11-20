@@ -27,6 +27,7 @@ import java.util.Set;
  */
 final class TableCtx {
     private static final String T = CourseAlarmEntry.TAG;
+    static final String[] CURRENT_TABLE_PREFS = {"com.coloros.calendar_preferences", "com.coloros.calendar_preference"};
 
     /**
      * 课程事件的真实位置：**标准** CalendarProvider。
@@ -51,6 +52,9 @@ final class TableCtx {
     boolean hasReminder;
     int reminderMinutes = 15;
     private boolean nativeTiming;
+    private boolean calendarListRead;
+    private int morningCount = -1;
+    private int afternoonCount;
     /** 当前表是从宿主 prefs 读出来的（= 用户屏幕上正在看的表）；此时任何"猜"都不许覆盖它 */
     boolean calendarFromPrefs;
     /** Calendars 表里出现过的所有 id（校验 prefs 里的当前表是否还存在） */
@@ -134,6 +138,26 @@ final class TableCtx {
     // ── 读取 ────────────────────────────────────────────────────────────────
 
     static TableCtx load(Context ctx) {
+        return load(ctx, true);
+    }
+
+    static TableCtx loadForAlarm(Context ctx) {
+        return load(ctx, false);
+    }
+
+    boolean alarmTableResolved() {
+        return calendarListRead && (calendarId > 0 || courseCalIds.isEmpty());
+    }
+
+    boolean alarmTimingKnown() {
+        return morningCount >= 0;
+    }
+
+    AlarmPeriod alarmPeriodAt(int minute) {
+        return AlarmPeriod.at(minute, periodStart, periodEnd, morningCount, afternoonCount);
+    }
+
+    private static TableCtx load(Context ctx, boolean includeCourses) {
         TableCtx t = new TableCtx();
         t.hostCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
         ContentResolver cr = ctx.getContentResolver();
@@ -146,8 +170,10 @@ final class TableCtx {
         }
         t.resolveCalendar(cr);
         t.readTableMetadata(cr);
-        t.readCourses(cr);
-        t.deriveTiming();
+        if (includeCourses) {
+            t.readCourses(cr);
+            t.deriveTiming();
+        }
         Logx.i(T, "TableCtx " + t.dump());
         return t;
     }
@@ -211,6 +237,7 @@ final class TableCtx {
                         if (vis || calendarId < 0) calendarId = id;
                     }
                 }
+                calendarListRead = true;
             }
         } catch (Throwable e) {
             Logx.w(T, "resolveCalendar failed: " + e);
@@ -254,14 +281,18 @@ final class TableCtx {
                 JSONObject times = o.optJSONObject("courseTableTime");
                 if (times == null) return;
                 List<Integer> starts = new ArrayList<>(), ends = new ArrayList<>();
+                int morningSize = 0, afternoonSize = 0;
                 for (String key : new String[]{"morningCoursesList", "afternoontCoursesList", "nightCoursesList"}) {
                     JSONArray items = times.optJSONArray(key);
                     if (items == null) return;
+                    if ("morningCoursesList".equals(key)) morningSize = items.length();
+                    if ("afternoontCoursesList".equals(key)) afternoonSize = items.length();
                     for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.getJSONObject(i);
                         int start = minuteOfDay(item.getLong("startTime"));
                         int end = minuteOfDay(item.getLong("endTime"));
-                        if (start < 0 || end <= start || end > 1440) return;
+                        if (start < 0 || end <= start || end > 1440
+                                || (!ends.isEmpty() && start < ends.get(ends.size() - 1))) return;
                         starts.add(start); ends.add(end);
                     }
                 }
@@ -271,6 +302,8 @@ final class TableCtx {
                     periodStart[i] = starts.get(i); periodEnd[i] = ends.get(i);
                 }
                 nativeTiming = termBeginMs > 0;
+                morningCount = morningSize;
+                afternoonCount = afternoonSize;
                 return;
             }
         } catch (Exception e) {
@@ -287,8 +320,7 @@ final class TableCtx {
 
     static long hostCurrentTableId(Context ctx) {
         if (ctx == null) return -1;
-        String[] names = {"com.coloros.calendar_preferences", "com.coloros.calendar_preference"};
-        for (String n : names) {
+        for (String n : CURRENT_TABLE_PREFS) {
             try {
                 android.content.SharedPreferences sp = ctx.getSharedPreferences(n, Context.MODE_PRIVATE);
                 long v = sp.getLong("sp_key_current_course_table", -1);

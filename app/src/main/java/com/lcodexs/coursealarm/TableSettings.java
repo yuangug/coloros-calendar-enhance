@@ -86,7 +86,9 @@ final class TableSettings {
     /** New-table creation may explicitly reset an otherwise empty legacy identity. */
     static void resetForNewTable(Context context, long calendarId) throws Exception {
         State current = refresh(context, calendarId);
-        if (!preferences(context).edit().remove(key(current.identity)).commit())
+        SharedPreferences.Editor edit = preferences(context).edit().remove(key(current.identity));
+        CourseLiveSettings.removeForNewTable(edit, current.identity);
+        if (!edit.commit())
             throw new IllegalStateException("新课表设置初始化失败");
         STATES.put(calendarId, new State(calendarId, current.identity, false));
     }
@@ -94,7 +96,7 @@ final class TableSettings {
     /** Keep the identity-keyed preference for a possible undo, but never keep a deleted table active. */
     static void invalidate(long calendarId) { STATES.remove(calendarId); }
 
-    private static SharedPreferences preferences(Context context) {
+    static SharedPreferences preferences(Context context) {
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
 

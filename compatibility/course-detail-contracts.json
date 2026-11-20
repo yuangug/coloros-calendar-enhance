@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "description": "Course detail theme material interfaces; no host code execution.",
+  "contracts": [
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "onStart",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "getCourseList",
+      "descriptor": "()Ljava/util/ArrayList;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment",
+      "name": "binding",
+      "descriptor": "Lcom/coloros/calendar/databinding/AddCalendarRecycelviewBinding;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coloros.calendar.databinding.AddCalendarRecycelviewBinding",
+      "name": "recyclerView",
+      "descriptor": "Landroidx/recyclerview/widget/RecyclerView;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "getRatio",
+      "descriptor": "()F",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "setShadowEdgeDrawable",
+      "descriptor": "(Landroid/graphics/drawable/Drawable;)V",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "mShadowEdgeDrawable",
+      "descriptor": "Landroid/graphics/drawable/Drawable;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "mRadius",
+      "descriptor": "F",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "mCornerRadius",
+      "descriptor": "I",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "mPanelBackground",
+      "descriptor": "Landroid/graphics/drawable/Drawable;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "mBackgroundBlurBuilder",
+      "descriptor": "Lcom/coui/appcompat/uiutil/COUIBackgroundBlurBuilder;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIBottomSheetDialog",
+      "name": "doBlurInternal",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.COUIBackgroundBlurBuilder",
+      "name": "useBackgroundBlur",
+      "descriptor": "()Z",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.COUIBackgroundBlurBuilder",
+      "name": "release",
+      "descriptor": "()V",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.COUIBackgroundBlurBuilder",
+      "name": "setUseBackgroundBlur",
+      "descriptor": "(ZLcom/coui/appcompat/uiutil/AnimLevel;)Lcom/coui/appcompat/uiutil/COUIBackgroundBlurBuilder;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.uiutil.UIUtil",
+      "name": "ANIM_LEVEL_SUPPORT_BLUR_MIN",
+      "descriptor": "Lcom/coui/appcompat/uiutil/AnimLevel;",
+      "static": true
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.oplus.todotaskability.TodoColor",
+      "name": "createByIndex",
+      "descriptor": "(Ljava/lang/Integer;)Lcom/oplus/todotaskability/TodoColor;",
+      "static": true
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.oplus.todotaskability.TodoColor",
+      "name": "getBgColor",
+      "descriptor": "()I",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.uiutil.ShadowUtils",
+      "name": "clearShadow",
+      "descriptor": "(Landroid/view/View;)V",
+      "static": true
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "mUseBackgroundBlur",
+      "descriptor": "Z",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "setUseBackgroundBlur",
+      "descriptor": "(Z)V",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "field",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "mPath",
+      "descriptor": "Landroid/graphics/Path;",
+      "static": false
+    },
+    {
+      "feature": "course-detail-material",
+      "kind": "method",
+      "owner": "com.coui.appcompat.panel.COUIPanelPercentFrameLayout",
+      "name": "updateBottomCornerRadius",
+      "descriptor": "()I",
+      "static": false
+    }
+  ],
+  "resources": [
+    {
+      "type": "id",
+      "name": "coui_panel_content_layout"
+    },
+    {
+      "type": "id",
+      "name": "root_view"
+    },
+    {
+      "type": "id",
+      "name": "course_title"
+    },
+    {
+      "type": "id",
+      "name": "edit_btn"
+    }
+  ]
+}

@@ -43,6 +43,14 @@ public final class DeviceVerification {
     static Activity activity()throws Exception{java.lang.reflect.Field field=UndoBar.class.getDeclaredField("resumed");field.setAccessible(true);Activity a=(Activity)((WeakReference<?>)field.get(null)).get();if(a==null)throw new IllegalStateException("No resumed Activity");return a;}
     static void run(JSONObject input)throws Exception{
         String op=input.getString("op");
+        if(op.equals("live")) {
+            new Thread(() -> { try { reply(CourseLiveDeviceChecks.exercise(app,input), null); }
+                catch (Exception error) { reply(null, error); } }, "verify-live-course").start(); return;
+        }
+        if(op.equals("liveChecks")) {
+            new Thread(() -> { try { reply(CourseLiveDeviceChecks.run(app), null); }
+                catch (Exception error) { reply(null, error); } }, "verify-live-isolated").start(); return;
+        }
         if(op.equals("loadChecks")){TableLoadProbe.run(input.optString("mode","burst"));return;}
         if(op.equals("profileRead")) {
             new Thread(()->{try{

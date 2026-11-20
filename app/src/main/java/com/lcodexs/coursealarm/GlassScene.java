@@ -10,11 +10,17 @@ import java.lang.ref.WeakReference;
 /** Background-only display list. Never records consumer cards or text. */
 final class GlassScene {
     private final WeakReference<ViewGroup> root;
+    private final ThemeWindowBackground windowBackground;
     final RenderNode node = new RenderNode("course-backdrop-source");
     private long frame = Long.MIN_VALUE;
     private String key;
     int generation;
-    GlassScene(ViewGroup root) { this.root = new WeakReference<>(root); node.setClipToBounds(false); }
+    GlassScene(ViewGroup root) { this(root, false); }
+    GlassScene(ViewGroup root, boolean fullWindow) {
+        this.root = new WeakReference<>(root);
+        windowBackground = fullWindow ? new ThemeWindowBackground(root, true) : null;
+        node.setClipToBounds(false);
+    }
     boolean animated() {
         ViewGroup view = root.get();
         if (view == null || !view.isShown()) return false;
@@ -38,6 +44,12 @@ final class GlassScene {
         node.setPosition(0, 0, view.getWidth(), view.getHeight());
         RecordingCanvas canvas = node.beginRecording();
         try {
+            if (windowBackground != null) {
+                // Dialog sheets can extend below the timetable's own bounds. Draw
+                // the same window-anchored theme, never any window foreground.
+                windowBackground.setBounds(0, 0, view.getWidth(), view.getHeight());
+                windowBackground.draw(canvas);
+            } else {
             Drawable background = view.getBackground();
             if (background != null) background.draw(canvas);
             else canvas.drawColor(NingGuang.night(view.getContext()) ? 0xFF141414 : 0xFFF4F5F7);
@@ -48,6 +60,7 @@ final class GlassScene {
                 int save = canvas.save(); canvas.concat(matrix);
                 int alpha = canvas.saveLayerAlpha(0, 0, child.getWidth(), child.getHeight(), Math.round(child.getAlpha() * 255));
                 child.draw(canvas); canvas.restoreToCount(alpha); canvas.restoreToCount(save);
+            }
             }
         } finally { node.endRecording(); }
         generation++;

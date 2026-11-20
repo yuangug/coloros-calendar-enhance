@@ -91,11 +91,13 @@ final class TableEntryRoute {
         long token = ++request;
         long id = intent.getLongExtra("calendar_id", -1);
         int week = intent.getIntExtra("selected_week", -1);
+        Runnable detail = CourseLiveDetail.consume(activity, intent);
         MainTabHook.keepTableMode();
         Runnable open = () -> {
             if (request != token || activity.isFinishing() || activity.isDestroyed()) return;
             MainTabHook.openCoursePage(activity);
             if (week >= 0) HostTablePage.openWeekIndex(week);
+            detail.run();
             Logx.i(CourseAlarmEntry.TAG, "course entry: enhanced main ready calendar=" + id + " week=" + week);
         };
         if (id <= 0 || id == TableCtx.hostCurrentTableId(activity)) {

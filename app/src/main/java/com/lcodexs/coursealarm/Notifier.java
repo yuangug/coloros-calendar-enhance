@@ -7,9 +7,6 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 
-import java.util.List;
-import java.util.Locale;
-
 /** 通知用户「闹钟已设置」。宿主 com.coloros.calendar 已 hold POST_NOTIFICATIONS。 */
 final class Notifier {
     private static final String T = CourseAlarmEntry.TAG;
@@ -19,14 +16,27 @@ final class Notifier {
     private Notifier() {
     }
 
-    static void ensureChannel(Context ctx) {
+    private static String channel(AlarmPeriod period) {
+        return CHANNEL + period.uiSuffix;
+    }
+
+    static void cancel(Context ctx, AlarmPeriod period) {
+        try {
+            NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+            if (nm != null) nm.cancel(ID + period.ordinal());
+        } catch (Exception error) {
+            Logx.w(T, "cancel receipt failed: " + error);
+        }
+    }
+
+    private static void ensureChannel(Context ctx, AlarmPeriod period) {
         try {
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
-            if (nm.getNotificationChannel(CHANNEL) == null) {
-                NotificationChannel ch = new NotificationChannel(CHANNEL, "课程早晨闹钟",
+            if (nm.getNotificationChannel(channel(period)) == null) {
+                NotificationChannel ch = new NotificationChannel(channel(period), "课程" + period.title,
                         NotificationManager.IMPORTANCE_DEFAULT);
-                ch.setDescription("每晚自动为次日早课设置一次性闹钟后的回执");
+                ch.setDescription("设置一次性课程闹钟后的回执");
                 ch.setShowBadge(false);
                 nm.createNotificationChannel(ch);
             }
@@ -35,9 +45,9 @@ final class Notifier {
         }
     }
 
-    static void post(Context ctx, String title, String text) {
+    static void post(Context ctx, AlarmPeriod period, String title, String text) {
         try {
-            ensureChannel(ctx);
+            ensureChannel(ctx, period);
             NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
 
@@ -46,7 +56,7 @@ final class Notifier {
             PendingIntent pi = PendingIntent.getActivity(ctx, 0, open,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-            Notification.Builder b = new Notification.Builder(ctx, CHANNEL)
+            Notification.Builder b = new Notification.Builder(ctx, channel(period))
                     .setSmallIcon(R.drawable.ic_stat_course)
                     .setContentTitle(title)
                     .setContentText(text)
@@ -55,31 +65,10 @@ final class Notifier {
                     .setContentIntent(pi)
                     .setWhen(System.currentTimeMillis())
                     .setShowWhen(true);
-            nm.notify(ID, b.build());
+            nm.notify(ID + period.ordinal(), b.build());
             Logx.i(T, "notify posted: " + title + " | " + text);
         } catch (Throwable t) {
             Logx.e(T, "notify failed: " + t);
         }
     }
-
-    static void postResult(Context ctx, List<CourseRepo.Slot> slots, int created) {
-        if (slots == null || slots.isEmpty()) {
-            post(ctx, "今晚没设闹钟", "明天上午没有课，明早不设闹钟。");
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        int i = 0;
-        for (CourseRepo.Slot s : slots) {
-            int[] a = CourseRepo.alarmTimeFor(s, Prefs.offset());
-            if (i++ > 0) sb.append("\n");
-            sb.append(String.format(Locale.US, "%02d:%02d", a[0], a[1]));
-            if (s.title != null && !s.title.isEmpty()) sb.append("  ").append(s.title);
-            if (s.location != null && !s.location.isEmpty()) sb.append(" @").append(s.location);
-            sb.append(String.format(Locale.US, "（课 %02d:%02d，提前 %d 分钟）",
-                    s.hour, s.minute, Prefs.offset()));
-        }
-        String title = created > 0 ? "已设置明早闹钟 " + created + " 个" : "闹钟设置未完成";
-        post(ctx, title, sb.toString());
-    }
 }
-

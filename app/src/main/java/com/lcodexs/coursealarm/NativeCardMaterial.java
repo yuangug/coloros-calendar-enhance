@@ -9,6 +9,7 @@ import java.lang.reflect.*;
 /** Calls the same COUI/Oplus View effects as BaseBottomFloatingMenuView. */
 final class NativeCardMaterial {
     private final View view;
+    private final java.lang.ref.WeakReference<View> materialSource;
     private final ClassLoader loader;
     private final Class<?> effect;
     private final Object manager;
@@ -18,6 +19,10 @@ final class NativeCardMaterial {
     private int configuration, width=-1, height=-1;
     private boolean attached;
     NativeCardMaterial(View view) throws Exception {
+        this(view, null);
+    }
+    NativeCardMaterial(View view, View source) throws Exception {
+        materialSource = new java.lang.ref.WeakReference<>(source);
         this.view = view; loader = view.getContext().getClassLoader();
         effect = Class.forName("com.coui.appcompat.COUIMaterialEffect", false, loader);
         Class<?> state = Class.forName("com.coui.appcompat.COUIMaterialStateManager", false, loader);
@@ -43,6 +48,7 @@ final class NativeCardMaterial {
         manager.getClass().getMethod("addOnMaterialStateChangedListener", iface).invoke(manager, listener);
         attached = true;
     }
+    void invalidateConfiguration() { configuration = Integer.MIN_VALUE; }
     void update(float corner) throws Exception {
         int key = view.getResources().getConfiguration().hashCode();
         if (configuration == key && radius == corner && width==view.getWidth() && height==view.getHeight()) return;
@@ -50,7 +56,8 @@ final class NativeCardMaterial {
         radius = corner; configuration = key;
         Context context = view.getContext();
         boolean enabled = Boolean.TRUE.equals(Ref.callName(manager, "isBlurEffectEnable"));
-        boolean drawable = findDrawableBranch(view.getRootView());
+        View source = materialSource.get();
+        boolean drawable = findDrawableBranch(source != null ? source.getRootView() : view.getRootView());
         applyEnum("setViewBlurEffect", "COUIMaterialBlurEffect$BlurEffectType", enabled && !drawable ? "TYPE_FRAMEWORK_BOTTOM_BAR" : "TYPE_NO_EFFECT");
         boolean stroke = Boolean.TRUE.equals(Ref.callName(manager, "isStrokeEffectEnable"));
         if (drawable && stroke) {
@@ -80,7 +87,8 @@ final class NativeCardMaterial {
         } else effect.getMethod("clearCausticShadow", View.class).invoke(null, view);
         // Reapply after stroke/shadow presets, which can reset material geometry.
         effect.getMethod("setCornerParams", View.class, corners).invoke(null, view, params);
-        if(view.getClass().getName().contains("CourseSurfaceRenderer$Card")){
+        if(view.getClass().getName().contains("CourseSurfaceRenderer$Card")
+                || view.getClass().getName().endsWith("CourseDetailMaterial$NativeLayer")){
             effect.getMethod("setCornerParams",View.class,corners).invoke(null,view,null);
             view.setClipToOutline(true);
         }

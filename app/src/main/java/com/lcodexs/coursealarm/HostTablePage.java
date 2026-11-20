@@ -221,6 +221,9 @@ final class HostTablePage {
         return page == null ? null : page.data;
     }
 
+    /** Main-thread startup coordination: the live activity worker must not duplicate a page read. */
+    static boolean loadInFlight() { return page != null && page.loading; }
+
     /**
      * 用户此刻看的是哪一周（0 起）：选过周次就用那一周，否则跟随「本周」。
      * 分享课表要把这个值当成宿主的 selected_week 传过去，否则分享图停在别的周。
@@ -873,6 +876,14 @@ final class HostTablePage {
                     set.invoke(win, (android.widget.AdapterView.OnItemClickListener)
                             (parent, view, position, id) -> { if (position >= 0 && position < MENU_IDS.length) onMenuPick(MENU_IDS[position]); });
                 }
+                Ref.callName(win, "setOnItemLongClickListener",
+                        (android.widget.AdapterView.OnItemLongClickListener) (parent, view, position, id) -> {
+                            if (position < 0 || position >= MENU_IDS.length || MENU_IDS[position] != MENU_TABLE_SETTINGS)
+                                return false;
+                            Ref.callName(win, "dismiss");
+                            TableSettingsPage.open(act, true);
+                            return true;
+                        });
                 menuWindow = win;   // 持住引用，弹窗被 GC 会直接消失
                 Ref.callName(win, "show", anchor);
                 Logx.i(T, "tablepage: COUI 菜单 shown (" + items.size() + " items)");

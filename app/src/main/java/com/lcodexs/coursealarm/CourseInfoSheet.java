@@ -34,6 +34,11 @@ final class CourseInfoSheet {
     }
 
     static boolean show(Activity a, ClassLoader host, ArrayList<?> courses, int viewType) {
+        HostTableData data = HostTablePage.currentData();
+        return show(a, host, courses, viewType, data == null ? null : data.tableJson);
+    }
+
+    static boolean show(Activity a, ClassLoader host, ArrayList<?> courses, int viewType, String tableJson) {
         if (a == null || host == null || courses == null || courses.isEmpty()) return false;
         try {
             Class<?> infoCls = Ref.cls(host, CLS_INFO);
@@ -46,7 +51,7 @@ final class CourseInfoSheet {
             Ref.callName(fragment, "setTableViewType", viewType);
             Ref.callName(fragment, "setAllCourseList", courses);   // 同一份即可（详情面板只用来展示）
 
-            fillTimes(host, courses);
+            fillTimes(host, courses, tableJson);
 
             final Object[] sheetRef = new Object[1];
             Object onEdit = HostCompat.unitCallback(host, entity -> {
@@ -79,10 +84,10 @@ final class CourseInfoSheet {
         } catch (Throwable ignored) {
         }
     }
-    /** 给每门课补 startTime / endTime（宿主卡片里「08:10 - 08:55 | 教室 | 教师」那行要用） */    private static void fillTimes(ClassLoader host, List<?> courses) {
+    /** 给每门课补 startTime / endTime（宿主详情按宿主节次显示时间）。 */
+    private static void fillTimes(ClassLoader host, List<?> courses, String tableJson) {
         try {
-            HostTableData d = HostTablePage.currentData();
-            if (d == null || d.tableJson == null) return;
+            if (tableJson == null) return;
             Class<?> gsonCls = Ref.cls(host, CLS_GSON);
             Class<?> tableCls = Ref.cls(host, CLS_TABLE_ENTITY);
             Class<?> entityCls = Ref.cls(host, CLS_ENTITY);
@@ -95,7 +100,7 @@ final class CourseInfoSheet {
                 return;
             }
             Object gson = gsonCls.getDeclaredConstructor().newInstance();
-            Object table = fromJson.invoke(gson, d.tableJson, tableCls);
+            Object table = fromJson.invoke(gson, tableJson, tableCls);
             if (table == null) return;
             int filled = 0;
             for (Object c : courses) {

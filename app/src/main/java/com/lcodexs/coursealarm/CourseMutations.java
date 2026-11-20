@@ -31,10 +31,6 @@ final class CourseMutations {
     // Accessed only on WORK; each task binds a backend before reading or constructing operations.
     private static CalendarBackend backend;
     private static Context app;
-    private static final ExecutorService ALARM_WORK = Executors.newSingleThreadExecutor(r -> new Thread(r,"rescheduled-course-alarm"));
-    private static final Runnable RESCHEDULE_ALARM = () -> ALARM_WORK.execute(() -> {
-        if (app != null && Prefs.enabled()) NightJob.run(app, "course-rescheduled");
-    });
     private static volatile Record pending;
 
     static void init(Context context) {
@@ -901,8 +897,7 @@ final class CourseMutations {
         HostTablePage.refresh();
     }
     private static void queueAlarmRefresh() {
-        UI.removeCallbacks(RESCHEDULE_ALARM);
-        UI.postDelayed(RESCHEDULE_ALARM, 400);
+        NightJob.onTableChanged();
     }
     private static String rootMessage(Throwable error) { while (error.getCause() != null) error = error.getCause(); return String.valueOf(error.getMessage()); }
     private static String rescheduleError(Throwable error) {

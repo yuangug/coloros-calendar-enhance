@@ -33,6 +33,8 @@ final class Hooks {
         MutationHooks.install(module, host, app);
         CourseRescheduleRepair.install(module, host);
         TableSettingsPage.install(module, host);
+        CourseLiveHooks.install(module, host, app);
+        CourseDetailMaterial.install(module, host);
         hookReminderPreferences(module, host);
         hookNightTick(module, host, app);
         hookCourseTableMenu(module, host);
@@ -48,11 +50,10 @@ final class Hooks {
         catch (ClassNotFoundException ignored) { }
         catch (Exception e) { Logx.e(T, "device verification setup", e); }
 
-        // 让「每晚 21:00」这个定时器始终存在（App 每次起进程都补一次，幂等）
+        // 仅在任一时段启用时维持夜间排程。
         try {
-            Scheduler.ensureScheduled(app);
-            Logx.i(T, "nightly tick ensured, next=" + Scheduler.fmt(Scheduler.nextTickMillis())
-                    + " enabled=" + Prefs.enabled());
+            Scheduler.update(app);
+            NightJob.observeTableSelection(app);
         } catch (Throwable t) {
             Logx.e(T, "ensureScheduled failed", t);
         }
@@ -624,7 +625,7 @@ final class Hooks {
         Logx.i(T, "hooked CourseTableManageActivity#onCreate");
     }
 
-    /** 课程提醒页：追加「早晨闹钟」那张卡片 */
+    /** 课程提醒页：追加早晨和下午闹钟。 */
     private static void hookReminderPreferences(XposedModule module, ClassLoader host) {
         final String cls = "com.android.calendar.card.schooltimetable.CourseReminderFragment";
         Class<?> c = resolve(host, cls);
@@ -683,6 +684,11 @@ final class Hooks {
                     Object a1 = chain.getArg(1);
                     if (a1 instanceof Intent) {
                         Intent it = (Intent) a1;
+                        AlarmPeriod followUp = Scheduler.followUpPeriod(it.getAction());
+                        if (followUp != null) {
+                            NightJob.runAsync(app, "follow-up", followUp);
+                            return null;
+                        }
                         if (Scheduler.ACTION_TICK.equals(it.getAction())) {
                             final Context ctx = (Context) chain.getArg(0);
                             final Context appCtx = ctx != null && ctx.getApplicationContext() != null
@@ -714,10 +720,9 @@ final class Hooks {
                                 return null;
                             }
 
-                            int days = it.getIntExtra("lspx_days", 1);
-                            if (days < 0 || days > 1) days = 1;
-                            NightJob.runAsync(appCtx, "nightly-21:00", days);
-                            Scheduler.ensureScheduled(appCtx);   // 排明天的 21:00
+                            if (it.getIntExtra("lspx_days", 1) == 0) NightJob.runTodayAsync(appCtx);
+                            else if (Prefs.anyAlarmEnabled()) NightJob.runAsync(appCtx, "nightly-21:00");
+                            Scheduler.update(appCtx);
                             return null;                        // 短路：不执行宿主逻辑
                         }
                     }
@@ -756,7 +761,7 @@ final class Hooks {
                                 + in.getInt("android.intent.extra.alarm.HOUR", -1)
                                 + " min=" + in.getInt("android.intent.extra.alarm.MINUTES", -1)
                                 + " dow=" + in.getByte("android.intent.extra.alarm.DAYS_OF_WEEK", (byte) -1));
-                        if (label != null && label.startsWith(AlarmBridge.LABEL_PREFIX)) {
+                        if (AlarmPeriod.MORNING.ownsLabel(label) || AlarmPeriod.AFTERNOON.ownsLabel(label)) {
                             // 兜底：无论上层传什么，课程闹钟一律「不重复 + 用完即删 + 启用」
                             in.putByte("android.intent.extra.alarm.DAYS_OF_WEEK", (byte) 0);
                             in.putInt("android.intent.extra.alarm.DELETE_AFTER_USE", -1);
