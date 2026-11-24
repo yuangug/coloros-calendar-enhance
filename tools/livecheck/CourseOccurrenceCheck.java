@@ -55,6 +55,37 @@ public final class CourseOccurrenceCheck {
         check(twoPeriods.timing(START + 99 * 60_000L + 59_999L).contains("还剩 1 分钟"), "Round remaining time up before end");
         check(twoPeriods.timing(START - 1).equals("距上课 1 分钟"), "Last pre-class millisecond is not zero minutes");
         check(twoPeriods.timing(START - 60_001L).equals("距上课 2 分钟"), "Pre-class minutes round up");
+        long end = twoPeriods.end, expires = twoPeriods.expiresAt(5);
+        check(CourseOccurrence.nextIslandUpdate(START, end, expires, START - 1000, true) == START,
+                "Enter the running phase at the start deadline");
+        check(CourseOccurrence.nextIslandUpdate(START, end, expires, end - 65_000, false) == end - 60_000,
+                "The collapsed capsule changes wording at the remaining-minute boundary");
+        check(CourseOccurrence.nextIslandUpdate(START, end, expires, START + 1000, true) == START + 6000,
+                "Update visible progress before the next minute boundary");
+        check(CourseOccurrence.nextIslandUpdate(START, end, expires, end - 500, true) == end,
+                "Five-second progress throttling must not delay the ended phase");
+        check(CourseOccurrence.nextIslandUpdate(START, end, expires, end, true) == expires,
+                "After class, no further progress occurs before the fixed retention deadline");
+        check(CourseOccurrence.nextIslandUpdate(START, end, end, end - 500, true) == end,
+                "Immediate dismissal does not create a later refresh deadline");
+        check(CourseAstraStyle.fromId(null) == CourseAstraStyle.TIMETABLE
+                && CourseAstraStyle.fromId("unknown") == CourseAstraStyle.TIMETABLE, "Default and invalid capsule style");
+        CourseAstraStyle number = CourseAstraStyle.fromId("remaining");
+        check(number.glyph(START, end, START - 1) == CourseAstraStyle.Glyph.MINUTES
+                && number.glyph(START, end, end - 1) == CourseAstraStyle.Glyph.MINUTES
+                && number.glyph(START, end, end) == CourseAstraStyle.Glyph.CHECK,
+                "Remaining minutes stay visible until the course ends and never show zero");
+        CourseAstraStyle phase = CourseAstraStyle.fromId("phase");
+        check(phase.glyph(START, end, START - 1) == CourseAstraStyle.Glyph.TIMETABLE
+                && phase.glyph(START, end, START) == CourseAstraStyle.Glyph.BOOK
+                && phase.glyph(START, end, end) == CourseAstraStyle.Glyph.CHECK,
+                "Phase icons change exactly at the start and end of class");
+        check(CourseAstraStyle.TIMETABLE.glyph(START, end, end) == CourseAstraStyle.Glyph.TIMETABLE,
+                "Fixed timetable icon does not change during retention");
+        check(CourseOccurrence.minutesUntil(START, START - 1) == 1
+                && CourseOccurrence.minutesUntil(end, START) == 100
+                && CourseOccurrence.minutesUntil(end, end) == 0,
+                "Capsule remaining minutes use real deadlines and round up");
         int previous = -1;
         for (long now = START - 30_000L; now <= twoPeriods.end + 30_000L; now += 10_000L) {
             int progress = twoPeriods.progress(now);

@@ -15,6 +15,7 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,8 +35,10 @@ final class TableSettingsPage {
     private static final String CALENDAR = "lspx_settings_calendar_id";
     private static final String IDENTITY = "lspx_settings_calendar_identity";
     private static final String SWITCH = "lspx_table_drag_enabled";
+    private static final String FINISH_WEEK = "lspx_table_finish_week";
     private static final String PERMISSION = "lspx_live_permission";
     private static final String COMPATIBILITY = "lspx_live_compatibility";
+    private static final String LIVE_STATUS = "lspx_live_status";
     private static final String TEST_NOTICE = "lspx_live_test_notice";
     private static final String TITLE = "课表设置";
     private static final String SCOPE_NOTE = "需要系统界面作用域，开启后会向 LSPosed 申请系统界面作用域";
@@ -52,6 +55,7 @@ final class TableSettingsPage {
         boolean awaitingAutoPermission;
         int generation;
         TableSettings.State table;
+        boolean finishWeekEnabled;
         CourseLiveSettings.State live;
         Bundle dnd;
         Bundle scope;
@@ -178,6 +182,8 @@ final class TableSettingsPage {
             BINDINGS.put(fragment, binding);
             addSwitch(activity, host, category, binding, SWITCH, "是否启用拖动调课",
                     "开启后，长按课程并拖动到目标星期和节次");
+            addSwitch(activity, host, category, binding, FINISH_WEEK, "结束本周课程",
+                    "本周没有剩余课程时，可在课表右上角提前切到下一周。本周内再打开课表时会直接显示下一周。");
             Object liveCategory = Class.forName("com.coui.appcompat.preference.COUIPreferenceCategory", false, host)
                     .getConstructor(Context.class, AttributeSet.class).newInstance(activity, null);
             invoke(liveCategory, "setKey", "lspx_course_live_category");
@@ -193,15 +199,29 @@ final class TableSettingsPage {
             binding.testCategory = new WeakReference<>(tests);
             invoke(screen, "addPreference", tests);
             addSwitch(activity, host, tests, binding, CourseLiveSettings.ENABLED,
-                    "启用课程实时活动增强", SCOPE_NOTE);
+                    "启用课程实时活动增强", "增强通知栏中的原生日历实时活动；需要系统界面作用域");
+            addSwitch(activity, host, tests, binding, CourseLiveSettings.ASTRA_ENABLED,
+                    "启用星河岛增强", "独立接管课程胶囊并调用星河岛显示展开卡片");
+            CourseAstraStyle[] styles = CourseAstraStyle.values();
+            addChoiceMenu(activity, host, tests, binding, CourseLiveSettings.ASTRA_STYLE,
+                    "流体云收起样式", "适用于星河岛增强，每张课表独立保存",
+                    Arrays.stream(styles).map(style -> style.label).toArray(String[]::new),
+                    Arrays.stream(styles).map(style -> style.id).toArray(String[]::new),
+                    CourseAstraStyle.TIMETABLE.id);
             addSwitch(activity, host, tests, binding, CourseLiveSettings.SHOW_PROGRESS,
                     "显示课程时长进度", "按上课至下课的完整时间计算，包含课间休息");
             addSwitch(activity, host, tests, binding, CourseLiveSettings.SHOW_DND_BUTTON,
                     "显示免打扰按钮", "在支持的实时活动通知中显示，下课时结束本次免打扰");
             addSwitch(activity, host, tests, binding, CourseLiveSettings.AUTO_DND,
                     "上课时自动开启免打扰", "仅管理本模块开启的免打扰，下课时自动结束");
-            addMenu(activity, host, tests, binding, CourseLiveSettings.RETAIN_MINUTES,
-                    "下课后保留时间", "显示“课程已结束”后移除本次卡片", () -> chooseRetention(binding));
+            addChoiceMenu(activity, host, tests, binding, CourseLiveSettings.RETAIN_MINUTES,
+                    "下课后保留时间", "显示“课程已结束”后移除本次卡片",
+                    new String[]{"立即移除", "1 分钟", "5 分钟", "10 分钟"},
+                    new String[]{"0", "1", "5", "10"}, "5");
+            Object liveStatus = newPreference(activity, host, "COUIPreference", binding, LIVE_STATUS,
+                    "运行状态", "正在读取状态");
+            invoke(liveStatus, "setSelectable", false);
+            invoke(tests, "addPreference", liveStatus);
             addMenu(activity, host, tests, binding, PERMISSION,
                     "免打扰权限", "正在读取权限状态", () -> openPermission(binding, false));
             addMenu(activity, host, tests, binding, COMPATIBILITY,
@@ -253,12 +273,14 @@ final class TableSettingsPage {
                 if (binding.identity == null || !binding.identity.equals(state.identity))
                     throw new IllegalStateException("课表已变化，请重新打开课表设置");
                 CourseLiveSettings.State live = CourseLiveSettings.fromTableState(activity, state);
+                boolean finishWeekEnabled = TableSettings.finishWeekEnabled(activity, state.identity);
                 boolean testVisible = CourseLiveSettings.showExperiments(activity);
                 Bundle dnd = testVisible ? CourseDndClient.status(activity) : Bundle.EMPTY;
                 Bundle scope = testVisible ? CourseSystemUiScope.status(activity) : Bundle.EMPTY;
                 activity.runOnUiThread(() -> {
                     if (!current(binding, generation)) return;
                     binding.table = state;
+                    binding.finishWeekEnabled = finishWeekEnabled;
                     binding.live = live;
                     binding.dnd = dnd;
                     binding.scope = scope;
@@ -345,11 +367,16 @@ final class TableSettingsPage {
                 }
                 if (SWITCH.equals(key))
                     TableSettings.setEnabled(activity, binding.calendarId, binding.identity, Boolean.TRUE.equals(value));
+                else if (FINISH_WEEK.equals(key))
+                    TableSettings.setFinishWeekEnabled(activity, binding.calendarId, binding.identity, Boolean.TRUE.equals(value));
                 else if (CourseLiveSettings.RETAIN_MINUTES.equals(key))
-                    CourseLiveSettings.setRetention(activity, binding.calendarId, binding.identity, (Integer) value);
+                    CourseLiveSettings.setRetention(activity, binding.calendarId, binding.identity, Integer.parseInt((String) value));
+                else if (CourseLiveSettings.ASTRA_STYLE.equals(key))
+                    CourseLiveSettings.setAstraStyle(activity, binding.calendarId, binding.identity, CourseAstraStyle.fromId((String) value));
                 else CourseLiveSettings.setBoolean(activity, binding.calendarId, binding.identity, key, Boolean.TRUE.equals(value));
-                if (!SWITCH.equals(key)) CourseLiveCoordinator.settingsChanged();
+                if (!SWITCH.equals(key) && !FINISH_WEEK.equals(key)) CourseLiveCoordinator.settingsChanged();
                 activity.runOnUiThread(() -> {
+                    if (FINISH_WEEK.equals(key)) HostTablePage.finishWeekSettingChanged(binding.identity);
                     if (!current(binding, generation)) return;
                     binding.saving = false;
                     if (CourseLiveSettings.ENABLED.equals(key) && Boolean.TRUE.equals(value))
@@ -378,18 +405,29 @@ final class TableSettingsPage {
                 if (preference == null) continue;
                 String key = entry.getKey();
                 if (TEST_NOTICE.equals(key)) continue;
-                boolean status = PERMISSION.equals(key) || COMPATIBILITY.equals(key);
-                boolean parent = SWITCH.equals(key) || CourseLiveSettings.ENABLED.equals(key)
-                        || CourseLiveSettings.RETAIN_ON_CLICK.equals(key);
+                boolean status = PERMISSION.equals(key) || COMPATIBILITY.equals(key) || LIVE_STATUS.equals(key);
+                boolean parent = SWITCH.equals(key) || FINISH_WEEK.equals(key) || CourseLiveSettings.ENABLED.equals(key)
+                        || CourseLiveSettings.ASTRA_ENABLED.equals(key) || CourseLiveSettings.RETAIN_ON_CLICK.equals(key)
+                        || CourseLiveSettings.ASTRA_STYLE.equals(key);
                 boolean granted = binding.scope != null && binding.scope.getBoolean("success");
-                invoke(preference, "setEnabled", status || editable && (parent || binding.live.enabled && granted));
+                boolean anyLive = binding.live != null && (binding.live.astraEnabled || binding.live.enabled && granted);
+                boolean dependent = CourseLiveSettings.SHOW_PROGRESS.equals(key)
+                        || CourseLiveSettings.SHOW_DND_BUTTON.equals(key)
+                        || CourseLiveSettings.AUTO_DND.equals(key)
+                        || CourseLiveSettings.RETAIN_MINUTES.equals(key);
+                invoke(preference, "setEnabled", status || editable && (parent || dependent && anyLive));
                 if (binding.invalid && !status) {
                     invoke(preference, "setSummary", "课表已变化或不可读取，请返回后重新打开");
                 } else if (binding.live != null && !status) {
                     if (SWITCH.equals(key)) invoke(preference, "setChecked", binding.table.enabled);
-                    else if (CourseLiveSettings.RETAIN_MINUTES.equals(key))
+                    else if (FINISH_WEEK.equals(key)) invoke(preference, "setChecked", binding.finishWeekEnabled);
+                    else if (CourseLiveSettings.RETAIN_MINUTES.equals(key)) {
+                        invoke(preference, "setValue", Integer.toString(binding.live.retainMinutes));
                         invoke(preference, "setAssignment", CourseLiveSettings.retentionLabel(binding.live.retainMinutes));
-                    else invoke(preference, "setChecked", binding.live.flag(key)
+                    } else if (CourseLiveSettings.ASTRA_STYLE.equals(key)) {
+                        invoke(preference, "setValue", binding.live.astraStyle.id);
+                        invoke(preference, "setAssignment", binding.live.astraStyle.label);
+                    } else invoke(preference, "setChecked", binding.live.flag(key)
                             && (!CourseLiveSettings.ENABLED.equals(key) || granted));
                 }
                 if (!binding.invalid && CourseLiveSettings.ENABLED.equals(key))
@@ -405,6 +443,9 @@ final class TableSettingsPage {
             }
             Object compatibility = binding.preference(COMPATIBILITY);
             if (compatibility != null) invoke(compatibility, "setSummary", CourseLiveCapabilities.summary(activity));
+            Object liveStatus = binding.preference(LIVE_STATUS);
+            if (liveStatus != null) invoke(liveStatus, "setSummary",
+                    CourseLiveCapabilities.status(activity, binding.live, binding.scope));
         } catch (Exception reflectionError) { failed(activity, "课表设置显示失败", reflectionError); }
     }
 
@@ -429,6 +470,27 @@ final class TableSettingsPage {
         Object preference = newPreference(activity, host, "COUIMenuPreference", binding, key, title, summary);
         listener(host, preference, "setOnPreferenceClickListener", args -> { clicked.run(); return true; });
         invoke(category, "addPreference", preference);
+    }
+
+    private static void addChoiceMenu(Activity activity, ClassLoader host, Object category, Binding binding,
+                                      String key, String title, String summary, String[] labels,
+                                      String[] values, String initialValue) throws Exception {
+        Object preference = newPreference(activity, host, "COUIMenuPreference", binding, key, title, summary);
+        invoke(preference, "setEntries", (Object) labels);
+        invoke(preference, "setEntryValues", (Object) values);
+        invoke(preference, "setValue", initialValue);
+        invoke(preference, "setAssignment", labels[indexOf(values, initialValue)]);
+        listener(host, preference, "setOnPreferenceChangeListener", args -> {
+            if (args != null && args.length == 2 && args[1] instanceof String selected
+                    && Arrays.asList(values).contains(selected)) save(binding, key, selected);
+            return false;
+        });
+        invoke(category, "addPreference", preference);
+    }
+
+    private static int indexOf(String[] values, String selected) {
+        for (int i = 0; i < values.length; i++) if (values[i].equals(selected)) return i;
+        return 0;
     }
 
     private static Object newPreference(Activity activity, ClassLoader host, String type, Binding binding,
@@ -456,19 +518,6 @@ final class TableSettingsPage {
         });
         setter.setAccessible(true);
         setter.invoke(preference, callback);
-    }
-
-    private static void chooseRetention(Binding binding) {
-        Activity activity = binding.activity.get();
-        if (activity == null || binding.live == null || binding.saving || binding.invalid) return;
-        int[] minutes = {0, 1, 5, 10};
-        List<String> choices = new ArrayList<>();
-        for (int value : minutes) choices.add(CourseLiveSettings.retentionLabel(value)
-                + (binding.live.retainMinutes == value ? "（当前）" : ""));
-        if (!HostSheet.show(activity, "下课后保留时间", choices, index -> {
-            if (index >= 0 && index < minutes.length && minutes[index] != binding.live.retainMinutes)
-                save(binding, CourseLiveSettings.RETAIN_MINUTES, minutes[index]);
-        })) CurriculumIo.toast(activity, "当前日历版本无法打开原生时间选择面板");
     }
 
     private static void openPermission(Binding binding, boolean enableAutoAfterGrant) {

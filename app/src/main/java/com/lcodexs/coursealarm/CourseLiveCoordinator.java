@@ -51,6 +51,10 @@ final class CourseLiveCoordinator {
     private static final Map<String, Long> dismissed = new ConcurrentHashMap<>();
     private static final Map<String, Posted> posted = new LinkedHashMap<>(); // worker only
     private static final Map<String, NativeAction> nativeActions = new HashMap<>();
+    private static final Map<String, IslandPublication> islands = new HashMap<>(); // worker only
+    private static final java.util.Set<String> astraCapsules = ConcurrentHashMap.newKeySet();
+    private static final Runnable ISLAND_RETRY = CourseLiveCoordinator::refresh;
+    private static final Runnable CARD_TICK = CourseLiveCoordinator::refresh;
     private static LocalDate loadedDate;
     private static long scheduledAt;
     private static int readFailures;
@@ -82,6 +86,11 @@ final class CourseLiveCoordinator {
     private static final class NativeAction {
         PendingIntent intent;
         boolean active;
+    }
+
+    private static final class IslandPublication {
+        String applied = "", pending = "";
+        int attempts;
     }
 
     static synchronized void init(Context context) {
@@ -242,6 +251,7 @@ final class CourseLiveCoordinator {
             if (!journal.edit().putLong("dismiss:" + key, end + 86400000L).commit())
                 Logx.w(CourseAlarmEntry.TAG, "live dismissal journal commit failed");
             CourseOccurrence item = find(key);
+            nativeNotificationEnded(key);
             if (item != null) CourseLiveHooks.closeOccurrence(item);
             CourseLiveSeedlingState.closeKey(key);
             Posted old = posted.remove(key);
@@ -380,14 +390,30 @@ final class CourseLiveCoordinator {
     static Bundle nativeCardState(CourseOccurrence item, String service, boolean includeAction) {
         Bundle result = new Bundle(); result.putInt("protocol", 1);
         CourseLiveSettings.State state = settings(item);
-        if (state == null || !state.enabled || suppressed(item)) { result.putBoolean("supported", false); return result; }
+        if (!includeAction || state == null || !state.enabled || suppressed(item)) {
+            result.putBoolean("supported", false); return result;
+        }
+        return cardState(item, service, state);
+    }
+
+    static Bundle astraCardState(CourseOccurrence item, String service) {
+        Bundle result = new Bundle(); result.putInt("protocol", 1);
+        CourseLiveSettings.State state = settings(item);
+        if (state == null || !state.astraEnabled || suppressed(item)) {
+            result.putBoolean("supported", false); return result;
+        }
+        return cardState(item, service, state);
+    }
+
+    private static Bundle cardState(CourseOccurrence item, String service, CourseLiveSettings.State state) {
+        Bundle result = new Bundle(); result.putInt("protocol", 1);
         long now = System.currentTimeMillis();
         result.putBoolean("supported", true); result.putString("serviceInstanceId", service);
         result.putString("key", item.key); result.putLong("start", item.start); result.putLong("end", item.end);
         result.putLong("expires", item.expiresAt(state.retainMinutes));
         result.putString("title", item.title); result.putString("room", item.room); result.putString("teacher", item.teacher);
         result.putString("status", item.timing(now)); result.putBoolean("progressEnabled", state.showProgress);
-        boolean showDnd = includeAction && state.showDndButton && now < item.end;
+        boolean showDnd = state.showDndButton && now < item.end;
         result.putBoolean("dndEnabled", showDnd);
         if (showDnd) {
             Bundle status = CourseDndClient.status(app, item.key);
@@ -431,6 +457,9 @@ final class CourseLiveCoordinator {
     }
 
     private static void cleanupDeadline() {
+        for (String key : new ArrayList<>(islands.keySet())) stopIsland(key);
+        work.removeCallbacks(ISLAND_RETRY);
+        work.removeCallbacks(CARD_TICK);
         CourseLiveSeedlingState.cleanupOnly();
         setAlarm(CourseLiveSeedlingState.nextExpiry());
     }
@@ -501,7 +530,7 @@ final class CourseLiveCoordinator {
         CourseLiveHooks.adoptCards();
         pruneReceipts(next);
         JSONArray sessions = new JSONArray();
-        if (current.enabled) for (CourseOccurrence item : next.values())
+        if (current.enabled || current.astraEnabled) for (CourseOccurrence item : next.values())
             if (item.end > System.currentTimeMillis()) sessions.put(new JSONObject().put("key", item.key)
                     .put("start", item.start).put("end", item.end).put("automatic", current.autoDnd));
         syncDnd(sessions);
@@ -560,6 +589,7 @@ final class CourseLiveCoordinator {
                 rememberClick(item, record.original.extras.getLong("lspx.course.alarm", item.reminderAt));
             } catch (RuntimeException error) { Logx.e(CourseAlarmEntry.TAG, "live notification update", error); }
         }
+        refreshIslands(now);
         CourseLiveHooks.refreshSeedling();
         CourseNativeCardBridge.changed(app);
         SharedPreferences.Editor prune = null;
@@ -570,6 +600,82 @@ final class CourseLiveCoordinator {
         }
         if (prune != null) prune.apply();
         schedule(now);
+    }
+
+    static boolean astraOwnsCapsule(CourseOccurrence item) { return astraCapsules.contains(item.key); }
+
+    private static void stopIsland(String key) {
+        nativeNotificationEnded(key);
+    }
+
+    static void nativeNotificationEnded(String key) {
+        // A real native END also applies after Calendar has restarted and lost its in-memory receipt.
+        boolean routed = astraCapsules.remove(key);
+        islands.remove(key);
+        String receipt = "astra:" + key;
+        if (routed || journal.contains(receipt)) {
+            CourseAstraIsland.end(app, key);
+            journal.edit().remove(receipt).apply();
+            CourseOccurrence item = find(key);
+            if (item != null) CourseLiveCapabilities.reportAstra(app, item, "ended");
+        }
+    }
+
+    private static void refreshIslands(long now) {
+        Map<String, CourseLiveSeedlingState.NotificationReceipt> eligible = new LinkedHashMap<>();
+        if (CourseSeedlingRouting.available) for (var receipt : CourseLiveSeedlingState.notificationReceipts()) {
+            CourseOccurrence item = find(receipt.key());
+            CourseLiveSettings.State state = settings(item);
+            if (state != null && state.astraEnabled && !suppressed(item))
+                eligible.putIfAbsent(item.key, receipt);
+        }
+        for (String key : new ArrayList<>(islands.keySet())) if (!eligible.containsKey(key)) stopIsland(key);
+        boolean retry = false;
+        for (var receipt : eligible.values()) {
+            CourseOccurrence item = find(receipt.key());
+            CourseLiveSettings.State state = settings(item);
+            Bundle action = astraCardState(item, receipt.service());
+            boolean dndActive = action.getBoolean("dndActive");
+            String fingerprint = receipt.service() + ":" + state.showProgress + ":" + state.astraStyle.id
+                    + ":" + state.showDndButton + ":" + dndActive + ":" + state.retainMinutes
+                    + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.end;
+            IslandPublication publication = islands.computeIfAbsent(item.key, ignored -> new IslandPublication());
+            if (fingerprint.equals(publication.applied)) continue;
+            if (!fingerprint.equals(publication.pending)) { publication.pending = fingerprint; publication.attempts = 0; }
+            if (publication.attempts >= 4) continue;
+            Intent open = new Intent("android.intent.action.card.NOTIFICATION_FLUID_CARD")
+                    .setClassName(app, "com.android.calendar.oppo.alerts.OppoAlertActivity")
+                    .setData(Uri.parse("coursealarm://activity/" + Uri.encode(item.key)))
+                    .putExtra("event_id", Long.toString(item.eventId)).putExtra("alarm_time", Long.toString(receipt.alarm()))
+                    .putExtra("serviceInstanceId", receipt.service())
+                    .putExtra("view_from_calendar", CalendarBackend.LOCAL.equals(item.backend));
+            Intent dismiss = new Intent(DISMISS).setClassName(app, RECEIVER)
+                    .setData(Uri.parse("coursealarm://dismiss/" + Uri.encode(item.key)))
+                    .putExtra(KEY, item.key).putExtra(END, item.end);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+            String result = CourseAstraIsland.publish(app, item, state, PendingIntent.getActivity(app, 0, open, flags),
+                    PendingIntent.getBroadcast(app, 0, dismiss, flags), action.getParcelable("dndAction"), dndActive);
+            if (CourseAstraIsland.ACCEPTED.equals(result)) {
+                publication.applied = fingerprint;
+                astraCapsules.add(item.key);
+                journal.edit().putLong("astra:" + item.key, item.expiresAt(state.retainMinutes)).apply();
+                CourseLiveCapabilities.reportAstra(app, item, "active");
+            } else if (CourseAstraIsland.CONNECTING.equals(result) && ++publication.attempts < 4) {
+                CourseLiveCapabilities.reportAstra(app, item, "connecting");
+                retry = true;
+            } else {
+                CourseLiveCapabilities.reportAstra(app, item, "unavailable");
+                // Restore the original capsule only after the SDK activity has been ended.
+                if (astraCapsules.remove(item.key)) {
+                    CourseAstraIsland.end(app, item.key);
+                    journal.edit().remove("astra:" + item.key).apply();
+                }
+                publication.applied = "";
+                publication.attempts = 4;
+            }
+        }
+        work.removeCallbacks(ISLAND_RETRY);
+        if (retry) work.postDelayed(ISLAND_RETRY, 1200);
     }
 
     private static Notification decorate(Posted record, CourseOccurrence item, CourseLiveSettings.State state,
@@ -584,14 +690,8 @@ final class CourseLiveCoordinator {
                 + (item.room.isEmpty() ? "" : " · " + item.room) + (item.teacher.isEmpty() ? "" : " · " + item.teacher);
         builder.setSubText(details + (record.otherDnd ? " · 系统免打扰已开启" : ""));
         builder.setStyle(null);
-        if (state.showProgress && now >= item.start) {
-            builder.setProgress(10000, item.progress(now), false);
-            if (Build.VERSION.SDK_INT >= 36) {
-                // Uses the system progress template. Fixed Seedling UPKs cannot render these widgets.
-                builder.setStyle(new Notification.ProgressStyle().setProgress(item.progress(now))
-                        .setProgressSegments(List.of(new Notification.ProgressStyle.Segment(10000))));
-            }
-        } else builder.setProgress(0, 0, false);
+        // Only SystemUI draws course progress, inside the original Seedling row.
+        builder.setProgress(0, 0, false);
         List<Notification.Action> actions = new ArrayList<>();
         if (original.actions != null) for (Notification.Action action : original.actions)
             if (!action.getExtras().getBoolean("lspx.live.dnd")) actions.add(action);
@@ -661,14 +761,27 @@ final class CourseLiveCoordinator {
 
     private static void schedule(long now) {
         long next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        long nextCard = Long.MAX_VALUE;
         for (CourseOccurrence item : occurrences.values()) {
             CourseLiveSettings.State state = settings(item); if (state == null) continue;
             if (item.start > now) next = Math.min(next, item.start);
             if (item.end > now) next = Math.min(next, item.end);
-            if (item.expiresAt(state.retainMinutes) > now && (posted.containsKey(item.key) || CourseLiveHooks.hasCard(item)))
-                next = Math.min(next, Math.min(item.expiresAt(state.retainMinutes), now + 60000L - now % 60000L));
+            if (item.expiresAt(state.retainMinutes) > now && CourseLiveHooks.hasCard(item)) {
+                long boundary = Math.min(item.expiresAt(state.retainMinutes), now + 60000L - now % 60000L);
+                if (item.start > now) boundary = Math.min(boundary, item.start);
+                if (item.end > now) boundary = Math.min(boundary, item.end);
+                nextCard = Math.min(nextCard, boundary);
+            }
+            if (posted.containsKey(item.key) && item.expiresAt(state.retainMinutes) > now)
+                next = Math.min(next, item.expiresAt(state.retainMinutes));
         }
+        work.removeCallbacks(CARD_TICK);
         if (settings == null || !settings.enabled) next = 0;
+        else if (nextCard != Long.MAX_VALUE) {
+            // Update active cards while Calendar is awake, even when the OS batches the alarm.
+            work.postDelayed(CARD_TICK, Math.max(1L, nextCard - System.currentTimeMillis()));
+            next = Math.min(next, nextCard);
+        }
         setAlarm(next);
     }
 

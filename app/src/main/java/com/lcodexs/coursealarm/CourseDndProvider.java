@@ -23,6 +23,8 @@ public final class CourseDndProvider extends ContentProvider {
         enforceCaller();
         long identity = Binder.clearCallingIdentity();
         try {
+            if (CourseAstraIsland.PUBLISH.equals(method) || CourseAstraIsland.END.equals(method))
+                return CourseAstraBroker.dispatch(moduleContext(), method, extras);
             if (CourseSystemUiScope.REQUEST.equals(method) || CourseSystemUiScope.STATUS.equals(method))
                 return CourseSystemUiScope.Broker.handle(method, extras);
             return CourseDndBroker.call(moduleContext(), method, extras);

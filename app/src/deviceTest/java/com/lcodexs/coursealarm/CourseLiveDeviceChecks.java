@@ -77,12 +77,34 @@ final class CourseLiveDeviceChecks {
         }
         CourseLiveSettings.State state = CourseLiveSettings.read(app,data.calendarId);
         if(operation.equals("configure")) {
+            if(input.has("enabled"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.ENABLED,input.getBoolean("enabled"));
             if(input.has("retain"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.RETAIN_ON_CLICK,input.getBoolean("retain"));
             if(input.has("auto"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.AUTO_DND,input.getBoolean("auto"));
             if(input.has("minutes"))CourseLiveSettings.setRetention(app,data.calendarId,state.identity,input.getInt("minutes"));
             CourseLiveCoordinator.settingsChanged();return output.put("configured",true);
         }
         CourseOccurrence occurrence = CourseLiveCoordinator.find(id,0);
+        if(operation.equals("arm") || operation.equals("disarm")) {
+            if (event == null || (operation.equals("arm") && occurrence == null))
+                throw new IllegalStateException("Test event or occurrence not loaded");
+            Class<?> alarms = Class.forName("com.coloros.calendar.foundation.databasedaolib.contract.CalendarContractOPlus$CalendarAlerts",
+                    false, app.getClassLoader());
+            Class<?> merge = Class.forName("com.coloros.calendar.foundation.databasedaolib.helper.DataBaseMergeUtil",
+                    false, app.getClassLoader());
+            boolean merged = Boolean.TRUE.equals(merge.getMethod("isCalendarProviderMergeVerison", Context.class).invoke(null, app));
+            android.net.Uri uri = (android.net.Uri) alarms.getMethod("getContentUri", boolean.class).invoke(null, !merged);
+            int removed = app.getContentResolver().delete(uri, "event_id=?", new String[]{Long.toString(id)});
+            if (operation.equals("disarm")) return output.put("disarmed", true).put("removed", removed);
+            long when = System.currentTimeMillis() + 1000L * input.optInt("afterSeconds", 8);
+            android.net.Uri row = (android.net.Uri) alarms.getMethod("insert", android.content.ContentResolver.class,
+                    long.class,long.class,long.class,long.class,int.class)
+                    .invoke(null, app.getContentResolver(), id, occurrence.start, occurrence.end, when, 0);
+            if (row == null) throw new IllegalStateException("Host did not insert reminder");
+            alarms.getMethod("scheduleAlarm", Context.class, android.app.AlarmManager.class, long.class)
+                    .invoke(null, app, app.getSystemService(android.app.AlarmManager.class), when);
+            return output.put("alarmAt", when).put("start", occurrence.start).put("end", occurrence.end)
+                    .put("merged", merged).put("row", row.toString());
+        }
         if(operation.equals("publish")) {
             if(occurrence==null)throw new IllegalStateException("Occurrence not loaded");
             ClassLoader host=app.getClassLoader();
@@ -162,7 +184,8 @@ final class CourseLiveDeviceChecks {
         long start = System.currentTimeMillis() - 45 * 60000L, end = start + 100 * 60000L;
         CourseOccurrence occurrence = new CourseOccurrence("test", "isolated", 99999, 99999,
                 start, end, start - 15 * 60000L, "隔离课程", "测试教室", "测试教师");
-        CourseLiveSettings.State state = new CourseLiveSettings.State(99999, "isolated", true, true, true, true, false, 5);
+        CourseLiveSettings.State state = new CourseLiveSettings.State(99999, "isolated", true, true, true, true, false, 5,
+                false, CourseAstraStyle.TIMETABLE);
         int icon = app.getResources().getIdentifier("ic_push", "drawable", app.getPackageName());
         Notification original = new Notification.Builder(app, "Calendar_course_channel_default").setSmallIcon(icon)
                 .setContentTitle("隔离课程").setContentText("原生内容").setAutoCancel(true).build();

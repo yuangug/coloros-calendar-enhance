@@ -28,10 +28,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedInterface;
 
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Map;
@@ -45,12 +43,9 @@ final class CourseNativeLiveCard {
     private static final Uri PROVIDER = Uri.parse("content://com.coloros.calendar.CourseContentProvider");
     private static final String ROW = "com.oplus.systemui.statusbar.notification.customcard.OplusCustomRow";
     private static final String ENTRY = "com.android.systemui.plugins.custom.CustomRowEntry";
-    private static final String PLUGIN_MANAGER = "com.oplus.systemui.statusbar.seeding.SeedlingPluginManager";
-    private static final String SEEDLING_PLUGIN = "com.android.systemui.plugins.statusbar.SeedlingPlugin";
-    private static final String ORIGIN = "com.oplus.systemui.livealert.seedling.origin.";
+    private static final long[] STATE_RETRY_DELAY = {200L, 600L, 1500L};
     private static final Handler main = new Handler(Looper.getMainLooper());
     private static final Map<View, WeakReference<Session>> sessions = new WeakHashMap<>();
-    private static final Map<Class<?>, Boolean> fluidRenderers = new WeakHashMap<>();
     private static Handler worker;
     private static Context app;
     private static boolean installed;
@@ -63,8 +58,6 @@ final class CourseNativeLiveCard {
         HandlerThread thread = new HandlerThread("CourseNativeCard", android.os.Process.THREAD_PRIORITY_BACKGROUND);
         thread.start(); worker = new Handler(thread.getLooper());
         installed = true;
-        installFluid(module, loader);
-        CourseAstraFluidProgress.install(module, app);
         try {
             Class<?> row = Class.forName(ROW, false, loader);
             Class<?> entry = Class.forName(ENTRY, false, loader);
@@ -96,8 +89,8 @@ final class CourseNativeLiveCard {
                     if (!CHANGED.equals(intent.getAction())) return;
                     // No state is accepted from this broadcast. It only invalidates authenticated IPC data.
                     long now = android.os.SystemClock.uptimeMillis();
-                    main.removeCallbacks(refreshVisible);
-                    main.postDelayed(refreshVisible, Math.max(150L, 1000L - (now - lastBroadcast)));
+                    main.removeCallbacks(refreshAttached);
+                    main.postDelayed(refreshAttached, Math.max(150L, 1000L - (now - lastBroadcast)));
                     lastBroadcast = now;
                 }
             };
@@ -107,105 +100,11 @@ final class CourseNativeLiveCard {
         }
     }
 
-    private static void installFluid(XposedModule module, ClassLoader host) {
-        try {
-            Class<?> manager = Class.forName(PLUGIN_MANAGER, false, host);
-            Class<?> plugin = Class.forName(SEEDLING_PLUGIN, false, host);
-            Method connected = manager.getMethod("onPluginConnected", plugin, Context.class);
-            module.hook(connected).setId("course_fluid_plugin_connected_v2")
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-                    .intercept(chain -> {
-                        // Observe the plugin lifecycle without intercepting its card/action messages.
-                        Object result = chain.proceed();
-                        if (chain.getArg(1) instanceof Context pluginContext)
-                            installFluidRenderer(module, pluginContext.getClassLoader());
-                        return result;
-                    });
-            Logx.i(CourseAlarmEntry.TAG, "course fluid plugin lifecycle hook ready");
-        } catch (Throwable error) {
-            Logx.e(CourseAlarmEntry.TAG, "course fluid plugin unavailable", error);
-        }
-    }
-
-    private static synchronized void installFluidRenderer(XposedModule module, ClassLoader loader) {
-        if (loader == null) return;
-        try {
-            Class<?> wrapper = Class.forName(ORIGIN + "F", false, loader);
-            if (fluidRenderers.containsKey(wrapper)) return;
-            Class<?> modelType = Class.forName(ORIGIN + "v", false, loader);
-            Field model = wrapper.getDeclaredField("b");
-            Field size = wrapper.getDeclaredField("c");
-            Field service = modelType.getDeclaredField("e");
-            Method view = wrapper.getDeclaredMethod("f", boolean.class);
-            Method entrance = modelType.getDeclaredMethod("k");
-            Method key = modelType.getDeclaredMethod("getKey");
-            Method pkg = modelType.getDeclaredMethod("o");
-            Method id = service.getType().getDeclaredMethod("getServiceId");
-            Method instance = service.getType().getDeclaredMethod("getServiceInstanceId");
-            if (model.getType() != modelType || !size.getType().isEnum() || !entrance.getReturnType().isEnum()
-                    || view.getReturnType() != View.class || key.getReturnType() != String.class
-                    || pkg.getReturnType() != String.class || id.getReturnType() != String.class
-                    || instance.getReturnType() != String.class)
-                throw new NoSuchMethodException("Seedling status bar card contract changed");
-            module.hook(view).setId("course_fluid_expanded_view_v2")
-                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
-                Object result = chain.proceed();
-                if (result instanceof ViewGroup root) try {
-                    Object owner = chain.getThisObject();
-                    Object cardSize = size.get(owner);
-                    String rowKey = "";
-                    String receiptId = "";
-                    if (namedEnum(cardSize, "VIEW_SIZE_LG") || namedEnum(cardSize, "VIEW_SIZE_MD")
-                            || namedEnum(cardSize, "VIEW_SIZE_IMMERSIVE")) {
-                        Object card = model.get(owner);
-                        if (namedEnum(entrance.invoke(card), "ENTRY_STATUS_BAR") && CALENDAR.equals(pkg.invoke(card))) {
-                            Object receipt = service.get(card);
-                            if (receipt != null && SERVICE.equals(id.invoke(receipt))) {
-                                rowKey = text(key.invoke(card));
-                                receiptId = text(instance.invoke(receipt));
-                            }
-                        }
-                    }
-                    bindFluid(root, rowKey, receiptId);
-                } catch (Exception | LinkageError ignored) { bindFluid(root, "", ""); }
-                return result;
-            });
-            fluidRenderers.put(wrapper, true);
-            Logx.i(CourseAlarmEntry.TAG, "expanded course fluid card hook ready");
-        } catch (Throwable error) {
-            Logx.e(CourseAlarmEntry.TAG, "expanded course fluid card unavailable", error);
-        }
-    }
-
-    private static boolean namedEnum(Object value, String name) {
-        return value instanceof Enum<?> item && name.equals(item.name());
-    }
-
-    private static void bindFluid(ViewGroup root, String key, String instance) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            main.post(() -> bindFluid(root, key, instance)); return;
-        }
-        WeakReference<Session> reference = sessions.get(root);
-        Session session = reference == null ? null : reference.get();
-        if (session != null && !session.fluid) return;
-        if (instance.isEmpty() || !instance.equals(instanceFromKey(key))) {
-            if (session != null) session.dispose();
-            return;
-        }
-        if (session != null && session.rowKey.equals(key)) {
-            session.mountSafely();
-            return;
-        }
-        if (session != null) session.dispose();
-        session = new Session(root, key, instance, true);
-        sessions.put(root, new WeakReference<>(session));
-        session.request();
-    }
-
-    private static final Runnable refreshVisible = () -> {
+    private static final Runnable refreshAttached = () -> {
         for (WeakReference<Session> reference : new ArrayList<>(sessions.values())) {
             Session session = reference.get();
-            if (session != null && session.row.isAttachedToWindow() && session.row.isShown()) session.request();
+            // A closed shade can keep the existing row attached. Opening it need not rebind it.
+            if (session != null && session.row.isAttachedToWindow()) session.request();
         }
     };
 
@@ -223,12 +122,14 @@ final class CourseNativeLiveCard {
                     && SERVICE.equals(text(Ref.callName(entry, "getServiceId"))) && !instance.isEmpty();
             if (!valid) { if (old != null) old.dispose(); return; }
             if (old == null) {
-                old = new Session(row, key, instance, false);
+                old = new Session(row, key, instance);
                 sessions.put(row, new WeakReference<>(old));
             } else if (!old.rowKey.equals(key)) {
                 old.reset(key, instance);
             } else if (contentChanged) {
-                old.unmount();
+                // The same row can reapply its template during a Seedling update.
+                old.anchorAttempts = 0;
+                old.mountSafely();
             }
             old.request();
         } catch (Throwable error) {
@@ -243,7 +144,6 @@ final class CourseNativeLiveCard {
 
     private static final class Session implements View.OnAttachStateChangeListener {
         final ViewGroup row;
-        final boolean fluid;
         String rowKey, instance;
         int generation, requestVersion;
         boolean pending, again, disposed;
@@ -255,29 +155,30 @@ final class CourseNativeLiveCard {
         TextView button;
         final Map<View, Integer> hidden = new WeakHashMap<>();
         String reported = "";
-        int anchorAttempts;
+        int anchorAttempts, stateAttempts;
         final Runnable mountLater = this::mountSafely;
+        final Runnable retryState = this::request;
         final Runnable refreshAfterAction = this::request;
 
-        Session(ViewGroup row, String rowKey, String instance, boolean fluid) {
+        Session(ViewGroup row, String rowKey, String instance) {
             this.row = row; this.rowKey = rowKey; this.instance = instance;
-            this.fluid = fluid;
             row.addOnAttachStateChangeListener(this);
         }
 
         void reset(String key, String serviceInstance) {
-            generation++; data = null; reported = ""; anchorAttempts = 0;
+            generation++; data = null; reported = ""; anchorAttempts = 0; stateAttempts = 0;
+            main.removeCallbacks(retryState);
             unmount(); rowKey = key; instance = serviceInstance;
         }
 
         Bundle query() {
             Bundle query = new Bundle(); query.putInt("protocol", 1);
-            if (fluid) query.putString("surface", CourseNativeCardBridge.FLUID);
             query.putString("serviceInstanceId", instance); query.putString("rowKey", rowKey); return query;
         }
 
         void request() {
             if (disposed || !row.isAttachedToWindow()) return;
+            main.removeCallbacks(retryState);
             if (pending) { again = true; return; }
             pending = true;
             int capturedGeneration = generation, version = ++requestVersion;
@@ -293,9 +194,13 @@ final class CourseNativeLiveCard {
                         if (again && !disposed) { again = false; request(); } return;
                     }
                     if (valid(result, instance)) {
-                        data = result; anchorAttempts = 0; mountSafely();
+                        data = result; anchorAttempts = 0; stateAttempts = 0; mountSafely();
                     } else {
-                        data = null; unmount(); report(false, "instance_not_validated");
+                        data = null; unmount();
+                        if (!again && stateAttempts < STATE_RETRY_DELAY.length
+                                && (result == null || result.getBoolean("retry"))) {
+                            main.postDelayed(retryState, STATE_RETRY_DELAY[stateAttempts++]);
+                        } else if (!again) report(false, "instance_not_validated");
                     }
                     if (again) { again = false; request(); }
                 });
@@ -303,7 +208,7 @@ final class CourseNativeLiveCard {
         }
 
         void mountSafely() {
-            if (disposed || data == null || !row.isAttachedToWindow()) return;
+            if (disposed || !valid(data, instance) || !row.isAttachedToWindow()) return;
             try { mount(); }
             catch (Throwable error) {
                 unmount(); report(false, "layout_incompatible");
@@ -312,7 +217,7 @@ final class CourseNativeLiveCard {
         }
 
         void mount() throws Exception {
-            Object content = fluid ? row : Ref.callName(row, "getContentLayout");
+            Object content = Ref.callName(row, "getContentLayout");
             View root = content instanceof View ? (View) content : row;
             View dividerView = findNamed(root, "divider_container");
             View section = findNamed(root, "section_root_container");
@@ -331,7 +236,7 @@ final class CourseNativeLiveCard {
                     main.removeCallbacks(mountLater); main.postDelayed(mountLater, anchorAttempts * 150L);
                 } else {
                     report(false, "native_divider_missing");
-                    Logx.w(CourseAlarmEntry.TAG, (fluid ? "fluid" : "native") + " course anchors unavailable: " + describe(root, 0, new int[]{0}));
+                    Logx.w(CourseAlarmEntry.TAG, "native course anchors unavailable: " + describe(root, 0, new int[]{0}));
                 }
                 return;
             }
@@ -348,13 +253,13 @@ final class CourseNativeLiveCard {
                         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                                 (LinearLayout.LayoutParams) nativeLine.getLayoutParams());
                         int padding = nativeLine.getPaddingTop() + nativeLine.getPaddingBottom();
-                        params.height = Math.max(dp(context, fluid ? 3 : 4) + padding,
+                        params.height = Math.max(dp(context, 4) + padding,
                                 Math.max(params.height, nativeLine.getMeasuredHeight()));
                         progress.setPadding(nativeLine.getPaddingLeft(), nativeLine.getPaddingTop(),
                                 nativeLine.getPaddingRight(), nativeLine.getPaddingBottom());
                         sectionRoot.addView(progress, sectionRoot.indexOfChild(nativeLine), params);
                     } else {
-                        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, dp(context, fluid ? 3 : 4));
+                        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, dp(context, 4));
                         params.bottomMargin = dimension(context, "divider_normal_padding", 8);
                         divider.addView(progress, params);
                     }
@@ -372,7 +277,7 @@ final class CourseNativeLiveCard {
                 progress.color = textColor(root, foreground(context), button);
             } else removeProgress();
 
-            boolean showAction = !fluid && data.getBoolean("dndEnabled") && action(data) != null
+            boolean showAction = data.getBoolean("dndEnabled") && action(data) != null
                     && System.currentTimeMillis() < data.getLong("end");
             if (!showAction) removeAction();
             else try {
@@ -462,10 +367,14 @@ final class CourseNativeLiveCard {
         }
         void dispose() {
             disposed = true; generation++; unmount(); data = null;
+            main.removeCallbacks(retryState);
             row.removeOnAttachStateChangeListener(this); sessions.remove(row);
         }
-        @Override public void onViewAttachedToWindow(View view) { anchorAttempts = 0; request(); }
-        @Override public void onViewDetachedFromWindow(View view) { generation++; unmount(); data = null; }
+        @Override public void onViewAttachedToWindow(View view) { anchorAttempts = 0; stateAttempts = 0; request(); }
+        @Override public void onViewDetachedFromWindow(View view) {
+            generation++; again = false; unmount(); data = null;
+            main.removeCallbacks(retryState);
+        }
     }
 
     private static boolean valid(Bundle data, String instance) {
@@ -559,7 +468,7 @@ final class CourseNativeLiveCard {
             super.onDraw(canvas);
             int color = this.color;
             float left = getPaddingLeft(), right = getWidth() - getPaddingRight();
-            float height = Math.min(dp(getContext(), owner.fluid ? 3 : 4), getHeight() - getPaddingTop() - getPaddingBottom());
+            float height = Math.min(dp(getContext(), 4), getHeight() - getPaddingTop() - getPaddingBottom());
             if (right <= left || height <= 0) return;
             float top = (getHeight() - height + getPaddingTop() - getPaddingBottom()) * .5f;
             float radius = height * .5f;

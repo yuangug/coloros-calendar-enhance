@@ -11,18 +11,26 @@ final class CourseLiveSettings {
     static final String SHOW_DND_BUTTON = "show_dnd_button";
     static final String AUTO_DND = "auto_dnd";
     static final String RETAIN_MINUTES = "retain_minutes";
+    static final String ASTRA_ENABLED = "astra_enabled";
+    static final String ASTRA_STYLE = "astra_style";
+    static final String IMPLEMENTATION = "implementation";
+    static final String IMPLEMENTATION_AUTO = "auto";
+    static final String IMPLEMENTATION_NOTIFICATION = "notification";
+    private static final String ASTRA_MIGRATED = "astra_migrated_v1";
     private static final String SHOW_EXPERIMENTS = "show_course_live_experiments";
     private static final String[] FIELDS = { ENABLED, RETAIN_ON_CLICK, SHOW_PROGRESS,
-            SHOW_DND_BUTTON, AUTO_DND, RETAIN_MINUTES };
+            SHOW_DND_BUTTON, AUTO_DND, RETAIN_MINUTES, ASTRA_ENABLED, ASTRA_STYLE, IMPLEMENTATION, ASTRA_MIGRATED };
 
     static final class State {
         final long calendarId;
         final String identity;
-        final boolean enabled, retainOnClick, showProgress, showDndButton, autoDnd;
+        final boolean enabled, retainOnClick, showProgress, showDndButton, autoDnd, astraEnabled;
         final int retainMinutes;
+        final CourseAstraStyle astraStyle;
 
         State(long calendarId, String identity, boolean enabled, boolean retainOnClick,
-              boolean showProgress, boolean showDndButton, boolean autoDnd, int retainMinutes) {
+              boolean showProgress, boolean showDndButton, boolean autoDnd, int retainMinutes,
+              boolean astraEnabled, CourseAstraStyle astraStyle) {
             this.calendarId = calendarId;
             this.identity = identity;
             this.enabled = enabled;
@@ -30,6 +38,8 @@ final class CourseLiveSettings {
             this.showProgress = showProgress;
             this.showDndButton = showDndButton;
             this.autoDnd = autoDnd;
+            this.astraEnabled = astraEnabled;
+            this.astraStyle = astraStyle;
             this.retainMinutes = validRetention(retainMinutes) ? retainMinutes : 5;
         }
 
@@ -40,6 +50,7 @@ final class CourseLiveSettings {
                 case SHOW_PROGRESS -> showProgress;
                 case SHOW_DND_BUTTON -> showDndButton;
                 case AUTO_DND -> autoDnd;
+                case ASTRA_ENABLED -> astraEnabled;
                 default -> throw new IllegalArgumentException("未知的课程实时活动设置");
             };
         }
@@ -60,10 +71,12 @@ final class CourseLiveSettings {
     static State fromTableState(Context context, TableSettings.State table) {
         SharedPreferences prefs = TableSettings.preferences(context);
         String id = table.identity;
+        migrateAstra(prefs, id);
         return new State(table.calendarId, id,
                 bool(prefs, id, ENABLED, false), bool(prefs, id, RETAIN_ON_CLICK, true),
                 bool(prefs, id, SHOW_PROGRESS, true), bool(prefs, id, SHOW_DND_BUTTON, true),
-                bool(prefs, id, AUTO_DND, false), retention(prefs, id));
+                bool(prefs, id, AUTO_DND, false), retention(prefs, id),
+                bool(prefs, id, ASTRA_ENABLED, false), astraStyle(prefs, id));
     }
 
     static boolean showExperiments(Context context) {
@@ -79,10 +92,12 @@ final class CourseLiveSettings {
     static State setBoolean(Context context, long calendarId, String expectedIdentity,
                             String field, boolean value) throws Exception {
         if (!ENABLED.equals(field) && !RETAIN_ON_CLICK.equals(field) && !SHOW_PROGRESS.equals(field)
-                && !SHOW_DND_BUTTON.equals(field) && !AUTO_DND.equals(field))
+                && !SHOW_DND_BUTTON.equals(field) && !AUTO_DND.equals(field) && !ASTRA_ENABLED.equals(field))
             throw new IllegalArgumentException("未知的课程实时活动设置");
         TableSettings.State table = requireIdentity(context, calendarId, expectedIdentity);
-        if (!TableSettings.preferences(context).edit().putBoolean(key(table.identity, field), value).commit())
+        SharedPreferences prefs = TableSettings.preferences(context);
+        migrateAstra(prefs, table.identity);
+        if (!prefs.edit().putBoolean(key(table.identity, field), value).commit())
             throw new IllegalStateException("课程实时活动设置保存失败，请重试");
         return fromTableState(context, table);
     }
@@ -90,9 +105,18 @@ final class CourseLiveSettings {
     static State setRetention(Context context, long calendarId, String expectedIdentity, int minutes) throws Exception {
         if (!validRetention(minutes)) throw new IllegalArgumentException("不支持的课后保留时间");
         TableSettings.State table = requireIdentity(context, calendarId, expectedIdentity);
-        if (!TableSettings.preferences(context).edit().putInt(key(table.identity, RETAIN_MINUTES), minutes).commit())
+        SharedPreferences prefs = TableSettings.preferences(context);
+        migrateAstra(prefs, table.identity);
+        if (!prefs.edit().putInt(key(table.identity, RETAIN_MINUTES), minutes).commit())
             throw new IllegalStateException("课后保留时间保存失败，请重试");
         return fromTableState(context, table);
+    }
+
+    static void setAstraStyle(Context context, long calendarId, String expectedIdentity, CourseAstraStyle style)
+            throws Exception {
+        TableSettings.State table = requireIdentity(context, calendarId, expectedIdentity);
+        if (!TableSettings.preferences(context).edit().putString(key(table.identity, ASTRA_STYLE), style.id).commit())
+            throw new IllegalStateException("流体云样式保存失败，请重试");
     }
 
     /** Included in the same private preference commit as resetting the drag switch. */
@@ -101,6 +125,10 @@ final class CourseLiveSettings {
     }
 
     static boolean validRetention(int minutes) { return minutes == 0 || minutes == 1 || minutes == 5 || minutes == 10; }
+
+    static boolean validImplementation(String value) {
+        return IMPLEMENTATION_AUTO.equals(value) || IMPLEMENTATION_NOTIFICATION.equals(value);
+    }
 
     static String retentionLabel(int minutes) { return minutes == 0 ? "立即移除" : minutes + " 分钟"; }
 
@@ -123,5 +151,29 @@ final class CourseLiveSettings {
             int value = preferences.getInt(key(identity, RETAIN_MINUTES), 5);
             return validRetention(value) ? value : 5;
         } catch (ClassCastException invalid) { return 5; }
+    }
+
+    private static CourseAstraStyle astraStyle(SharedPreferences preferences, String identity) {
+        try { return CourseAstraStyle.fromId(preferences.getString(key(identity, ASTRA_STYLE), null)); }
+        catch (ClassCastException invalid) { return CourseAstraStyle.TIMETABLE; }
+    }
+
+    private static String implementation(SharedPreferences preferences, String identity) {
+        try {
+            String value = preferences.getString(key(identity, IMPLEMENTATION), IMPLEMENTATION_AUTO);
+            return validImplementation(value) ? value : IMPLEMENTATION_AUTO;
+        } catch (ClassCastException invalid) { return IMPLEMENTATION_AUTO; }
+    }
+
+    private static void migrateAstra(SharedPreferences preferences, String identity) {
+        if (bool(preferences, identity, ASTRA_MIGRATED, false)) return;
+        String migratedKey = key(identity, ASTRA_MIGRATED);
+        String astraKey = key(identity, ASTRA_ENABLED);
+        boolean hasAstraValue = preferences.contains(astraKey);
+        boolean legacyAstra = bool(preferences, identity, ENABLED, false)
+                && IMPLEMENTATION_AUTO.equals(implementation(preferences, identity));
+        SharedPreferences.Editor edit = preferences.edit().putBoolean(migratedKey, true);
+        if (!hasAstraValue) edit.putBoolean(astraKey, legacyAstra);
+        edit.commit();
     }
 }

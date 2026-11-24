@@ -33,15 +33,16 @@ final class CourseNativeCardBridge {
         FutureTask<Bundle> result = new FutureTask<>(() -> {
             CourseOccurrence item = fluid ? CourseLiveSeedlingState.findVisibleService(service)
                     : CourseLiveSeedlingState.confirmNotification(service);
-            if (item == null) return unavailable("instance unavailable");
+            // SystemUI can attach the row before Calendar receives its subscription callback.
+            if (item == null) return unavailable("instance unavailable", true);
             if (CAPABILITY.equals(method)) {
                 boolean rendered = safe.getBoolean("rendered");
                 String reason = safe.getString("reason", "");
                 if (reason.length() > 160) reason = reason.substring(0, 160);
-                context.getSharedPreferences("lspx_course_live_capabilities", Context.MODE_PRIVATE).edit()
-                        .putBoolean(fluid ? "fluidRendered" : "nativeRendered", rendered)
-                        .putString(fluid ? "fluidReason" : "nativeReason", reason)
-                        .putLong(fluid ? "fluidReported" : "reported", System.currentTimeMillis()).apply();
+                if (fluid) context.getSharedPreferences("lspx_course_live_capabilities", Context.MODE_PRIVATE).edit()
+                        .putBoolean("fluidRendered", rendered).putString("fluidReason", reason)
+                        .putLong("fluidReported", System.currentTimeMillis()).apply();
+                else CourseLiveCapabilities.reportNative(context, item, rendered, reason);
                 Bundle acknowledged = new Bundle(); acknowledged.putBoolean("success", true); return acknowledged;
             }
             return CourseLiveCoordinator.nativeCardState(item, service, !fluid);
@@ -52,7 +53,7 @@ final class CourseNativeCardBridge {
             return result.get(2500, TimeUnit.MILLISECONDS);
         } catch (Exception error) {
             result.cancel(false);
-            return unavailable("state pending");
+            return unavailable("state pending", true);
         } finally { Binder.restoreCallingIdentity(identity); }
     }
 
@@ -70,7 +71,13 @@ final class CourseNativeCardBridge {
     }
 
     private static Bundle unavailable(String reason) {
+        return unavailable(reason, false);
+    }
+
+    private static Bundle unavailable(String reason, boolean retry) {
         Bundle result = new Bundle(); result.putInt("protocol", 1);
-        result.putBoolean("supported", false); result.putString("reason", reason); return result;
+        result.putBoolean("supported", false); result.putString("reason", reason);
+        if (retry) result.putBoolean("retry", true);
+        return result;
     }
 }

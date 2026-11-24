@@ -59,7 +59,8 @@ final class HostWeekSheet {
 
             int weeks = Math.max(1, d.weekCount);
             int current = Math.max(1, Math.min(d.currentWeek(), weeks));
-            int selected = Math.max(0, current - 1);
+            int viewed = HostTablePage.viewingWeekIndex0();
+            int selected = viewed >= 0 && viewed < weeks ? viewed : current - 1;
             long term = d.termBeginMs > 0 ? d.termBeginMs : System.currentTimeMillis();
             long calId = d.calendarId;
             List<Object> courses = new ArrayList<>();      // 空 list 宿主自己会兜底

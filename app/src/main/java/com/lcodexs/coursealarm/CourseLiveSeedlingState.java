@@ -9,6 +9,7 @@ import org.json.JSONObject;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -189,8 +190,11 @@ final class CourseLiveSeedlingState {
             // It must consume the persisted identity before a provider read/adoption can restore it.
             restore();
             Entry entry = entries.get(service); if (entry == null) return;
+            boolean hadNotification = entry.notificationReady || isNotificationHost(card);
             entry.cards.remove(widget);
             updateNotificationReady(entry);
+            if (hadNotification && !entry.notificationReady)
+                CourseLiveCoordinator.nativeNotificationEnded(entry.key);
             if (entry.cards.isEmpty()) {
                 if (!alreadyClosed && !entry.closing && !isClosing(service))
                     CourseLiveCoordinator.dismiss(captured(entry));
@@ -212,6 +216,15 @@ final class CourseLiveSeedlingState {
             if (entry.key.equals(item.key) && entry.end == item.end && !entry.force && !entry.closing
                     && entry.notificationReady && now < entry.expires) return true;
         return false;
+    }
+
+    record NotificationReceipt(String service, String key, long alarm) { }
+
+    static List<NotificationReceipt> notificationReceipts() {
+        List<NotificationReceipt> result = new ArrayList<>();
+        for (Entry entry : entries.values()) if (!entry.force && !entry.closing && entry.notificationReady)
+            result.add(new NotificationReceipt(entry.service, entry.key, entry.alarm));
+        return result;
     }
 
     static CourseOccurrence findVisibleService(String service) {
@@ -241,12 +254,15 @@ final class CourseLiveSeedlingState {
     private static void updateNotificationReady(Entry entry) {
         boolean delivered = false;
         if (entry.subscribedBoot == bootCount) for (Object card : entry.cards.values()) {
-            Object host = Ref.callName(card, "getHost");
-            if (host instanceof Enum && "Notification".equals(((Enum<?>) host).name())) {
+            if (isNotificationHost(card)) {
                 delivered = true; break;
             }
         }
         entry.notificationReady = delivered;
+    }
+
+    private static boolean isNotificationHost(Object card) {
+        return Ref.callName(card, "getHost") instanceof Enum<?> host && "Notification".equals(host.name());
     }
 
     static void close(CourseOccurrence item) {
@@ -262,7 +278,8 @@ final class CourseLiveSeedlingState {
             if (item == null || settings == null || item.end != entry.end || CourseLiveCoordinator.isDismissed(item)
                     || now >= item.expiresAt(settings.retainMinutes)) { close(entry); continue; }
             String current = item.timing(now) + ":" + settings.retainMinutes + ":" + settings.showProgress
-                    + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end;
+                    + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end
+                    + ":" + CourseLiveCoordinator.astraOwnsCapsule(item);
             if (current.equals(entry.last)) continue;
             entry.expires = item.expiresAt(settings.retainMinutes); save(entry);
             try {
@@ -280,6 +297,7 @@ final class CourseLiveSeedlingState {
     private static void close(Entry entry) {
         if (entries.get(entry.service) != entry) return;
         long now = System.currentTimeMillis();
+        if (!entry.closing) CourseLiveCoordinator.nativeNotificationEnded(entry.key);
         entry.closing = true;
         if (entry.closeAttempts >= MAX_CLOSE_ATTEMPTS) return;
         if (entry.closeAttemptAt > 0 && now - entry.closeAttemptAt < CLOSE_RETRY_MILLIS) {

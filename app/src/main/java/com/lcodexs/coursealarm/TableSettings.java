@@ -83,10 +83,43 @@ final class TableSettings {
         return true;
     }
 
+    static boolean finishWeekEnabled(Context context, String identity) {
+        return preferences(context).getBoolean("finish_week_" + identity, true);
+    }
+
+    static long finishedWeek(Context context, String identity) {
+        return preferences(context).getLong("finished_monday_" + identity, WeekFinishSchedule.NONE);
+    }
+
+    static void setFinishWeekEnabled(Context context, long calendarId, String expectedIdentity, boolean enabled) throws Exception {
+        if (!identity(context, calendarId).equals(expectedIdentity))
+            throw new IllegalStateException("课表已变化，请重新打开课表设置");
+        writeFinishWeekSetting(preferences(context), expectedIdentity, enabled);
+    }
+
+    static void writeFinishWeekSetting(SharedPreferences preferences, String identity, boolean enabled) {
+        SharedPreferences.Editor edit = preferences.edit().putBoolean("finish_week_" + identity, enabled);
+        if (!enabled) edit.remove("finished_monday_" + identity);
+        if (!edit.commit()) throw new IllegalStateException("课表设置保存失败，请重试");
+    }
+
+    /** UI-only navigation receipt. Apply makes it visible to the next entry immediately. */
+    static void markFinishedWeek(Context context, String identity, long monday) {
+        SharedPreferences.Editor edit = preferences(context).edit();
+        if (monday == WeekFinishSchedule.NONE) edit.remove("finished_monday_" + identity);
+        else edit.putLong("finished_monday_" + identity, monday);
+        edit.apply();
+    }
+
+    static void clearFinishWeek(SharedPreferences.Editor edit, String identity) {
+        edit.remove("finish_week_" + identity).remove("finished_monday_" + identity);
+    }
+
     /** New-table creation may explicitly reset an otherwise empty legacy identity. */
     static void resetForNewTable(Context context, long calendarId) throws Exception {
         State current = refresh(context, calendarId);
         SharedPreferences.Editor edit = preferences(context).edit().remove(key(current.identity));
+        clearFinishWeek(edit, current.identity);
         CourseLiveSettings.removeForNewTable(edit, current.identity);
         if (!edit.commit())
             throw new IllegalStateException("新课表设置初始化失败");

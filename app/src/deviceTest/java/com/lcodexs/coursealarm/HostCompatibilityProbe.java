@@ -46,6 +46,9 @@ public final class HostCompatibilityProbe {
                     .anyMatch(f->Modifier.isStatic(f.getModifiers())&&f.getType()==getter.getDeclaringClass()),"missing helper singleton");
         });
         check("week adapter resolver",()->out.put("weekAdapter",HostCompat.weekAdapter(LOADER).toString()));
+        check("finish week / native course rows", WeekFinishDeviceChecks::courseRows);
+        check("finish week / on-disk identity and relaunch", () ->
+                WeekFinishDeviceChecks.persistence(new java.io.File(args[0]).getParentFile()));
         check("pager resolver",()->out.put("pagerCurrentItem",HostCompat.pagerCurrentItem(load(HostCompat.PAGER)).toString()));
         check("Kotlin callback identity and return value",()->{
             int[] calls={0};

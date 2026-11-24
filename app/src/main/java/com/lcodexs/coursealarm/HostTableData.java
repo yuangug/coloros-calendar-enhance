@@ -61,10 +61,14 @@ final class HostTableData {
     long sourceTableId;
     int weekCount = 1;
     long termBeginMs;
+    WeekFinishSchedule weekSchedule;
 
     int currentWeek() {
         if (termBeginMs <= 0) return 1;
-        int w = (int)((System.currentTimeMillis() - termBeginMs) / (7L * 86400000L)) + 1;
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        java.time.LocalDate monday = WeekFinishSchedule.mondayOf(
+                java.time.Instant.ofEpochMilli(termBeginMs).atZone(zone).toLocalDate());
+        int w = (int) Math.floorDiv(java.time.LocalDate.now(zone).toEpochDay() - monday.toEpochDay(), 7L) + 1;
         return Math.max(1, Math.min(w, Math.max(weekCount, 1)));
     }
 
@@ -189,10 +193,12 @@ final class HostTableData {
             int cal = c.getColumnIndexOrThrow("calendar_id"), json = c.getColumnIndexOrThrow("events_json_extensions");
             int ext = c.getColumnIndexOrThrow("hasExtendedProperties"), id = c.getColumnIndexOrThrow("_id");
             int deleted = c.getColumnIndexOrThrow("deleted");
+            HostWeekFinishReader finishWeek = new HostWeekFinishReader(this, c);
             while (c.moveToNext()) {
                 cancel.throwIfCanceled();
                 if (c.getLong(cal) != calendarId || c.getInt(ext) != CourseWriter.COURSE_EXT_PROP || c.getInt(deleted) != 0) continue;
                 String raw = c.getString(json);
+                finishWeek.add(raw);
                 if (raw == null || raw.isEmpty()) continue;
                 events.add(reader.read(c, "Event"));
                 courseJsons.add(raw);
@@ -205,6 +211,7 @@ final class HostTableData {
                     }
                 }
             }
+            weekSchedule = finishWeek.schedule;
         }
         if (legacy != null) {
             legacy.deriveTiming();

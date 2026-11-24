@@ -95,6 +95,7 @@ final class TableEntryRoute {
         MainTabHook.keepTableMode();
         Runnable open = () -> {
             if (request != token || activity.isFinishing() || activity.isDestroyed()) return;
+            if (week < 0) HostTablePage.defaultEntry(activity);
             MainTabHook.openCoursePage(activity);
             if (week >= 0) HostTablePage.openWeekIndex(week);
             detail.run();

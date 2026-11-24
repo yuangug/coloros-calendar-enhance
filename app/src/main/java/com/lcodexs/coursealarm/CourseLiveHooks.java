@@ -254,13 +254,18 @@ final class CourseLiveHooks {
                     // Versioned metadata is intentionally not advertised as a rendered progress widget.
                     data.put("courseActivityVersion", 1).put("courseStartTime", item.start).put("courseEndTime", item.end)
                             .put("courseActivityDeadline", item.expiresAt(state.retainMinutes))
-                            .put("courseProgressEnabled", state.enabled && state.showProgress);
-                    if (state.enabled && state.showProgress) data.put("courseProgress", item.progress(System.currentTimeMillis()));
+                            .put("courseProgressEnabled", state.astraEnabled && state.showProgress);
+                    if (state.astraEnabled && state.showProgress)
+                        data.put("courseProgress", item.progress(System.currentTimeMillis()));
+                    if (state.astraEnabled && !Boolean.TRUE.equals(Ref.callName(chain.getArg(2), "isForceAlert")))
+                        data.put("courseCapsuleRouting", true);
                 }
             }
             return result;
         });
         CourseLiveCapabilities.fluidHook = true;
+        try { CourseSeedlingRouting.install(module, loader); }
+        catch (Throwable error) { Logx.e(CourseAlarmEntry.TAG, "separate course capsule routing unavailable", error); }
     }
 
     private static void installProvider(XposedModule module, ClassLoader loader) {

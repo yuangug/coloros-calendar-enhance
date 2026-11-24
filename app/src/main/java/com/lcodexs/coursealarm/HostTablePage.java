@@ -60,7 +60,7 @@ final class HostTablePage {
 
     /** 课表页根视图（液态玻璃要拿它算「背景图 CENTER_CROP」的映射） */
     static View rootView() {
-        return page == null ? null : page.root;
+        return page == null ? null : page.surface;
     }
     static View headerView() { return page == null ? null : page.head; }
 
@@ -96,6 +96,7 @@ final class HostTablePage {
             if (p.root.getParent() instanceof ViewGroup) ((ViewGroup)p.root.getParent()).removeView(p.root);
             host.addView(p.root, new FrameLayout.LayoutParams(-1, -1));
         }
+        p.preferFinishedOnEntry |= !p.visible;
         p.visible = true;
         p.root.animate().cancel();
         p.root.setVisibility(View.VISIBLE);
@@ -104,6 +105,7 @@ final class HostTablePage {
         if (!ThemeBg.signature(a).equals(p.themeKey)) p.applyTheme();
         p.refreshForClockAndConfiguration();
         refreshIfTableChanged(a);
+        p.updateFinishWeek();
         if (p.dirty) p.reload();
         if (p.needsBind && p.data != null && p.data.sourceTableId == HostTableData.currentTableId(a)) p.bind(p.data, p.courses);
         else if (!p.loading && p.loadFailed && p.pager == null) p.showEmpty("课表读取失败\n点这里重试");
@@ -119,6 +121,7 @@ final class HostTablePage {
         CourseDragController.cancelActive(p.act);
         p.rememberWeek();
         p.visible = false;
+        p.stopWeekAction();
         p.root.animate().cancel();
         p.root.setVisibility(View.GONE);
         Logx.i(T, "tablepage: hidden, retaining pager");
@@ -136,6 +139,7 @@ final class HostTablePage {
         if (old.root != null && old.root.getViewTreeObserver().isAlive())
             old.root.getViewTreeObserver().removeOnPreDrawListener(old.keepOnTop);
         try { old.act.getContentResolver().unregisterContentObserver(old.observer); } catch (Exception ignored) { }
+        try { old.act.unregisterReceiver(old.clockReceiver); } catch (IllegalArgumentException ignored) { }
         try {
             ViewGroup parent = old.root == null ? null : (ViewGroup) old.root.getParent();
             if (parent != null) parent.removeView(old.root);
@@ -154,7 +158,9 @@ final class HostTablePage {
             Logx.i(T, "课表已切换（" + page.selectedId + " → " + now + "），重载页面");
             page.selectedId = now;
             page.cancelLoad();
-            page.viewWeekIndex = -1;   // 换课表 → 回到本周
+            page.selection.choose(-1);
+            page.tableIdentity = null;
+            page.weekDecision = null;
             page.pager = null;
             if (page.pagerView != null) page.pagerView.setVisibility(View.INVISIBLE);
             page.markDirty();
@@ -189,8 +195,9 @@ final class HostTablePage {
 
     static void gotoToday() {
         if (!showing()) return;
-        page.viewWeekIndex = -1;                 // 回到「跟随本周」
-        page.gotoWeek(page.data == null ? 1 : page.data.currentWeek());
+        // An explicit 回到本周 still opens the real week even after finishing it.
+        page.selectWeek(page.weekDecision != null && page.weekDecision.advanced()
+                ? page.weekDecision.realIndex() : -1);
     }
 
     /** 宿主周次面板选完回调（0 起的周序号）→ 跳到对应周 */
@@ -201,8 +208,16 @@ final class HostTablePage {
 
     static void openWeekIndex(int week) {
         if (page == null || week < 0) return;
-        if (page.data == null || page.pager == null) page.viewWeekIndex = week;
-        else page.gotoWeek(week + 1);
+        page.selectWeek(week);
+    }
+
+    static void defaultEntry(Activity activity) {
+        if (page != null && page.act == activity) page.preferFinishedOnEntry = true;
+    }
+
+    static void finishWeekSettingChanged(String identity) {
+        Page p = page;
+        if (p != null && identity.equals(p.tableIdentity)) p.updateWeekAndAlign();
     }
 
     static void showWeekPicker(View anchor) {
@@ -230,9 +245,14 @@ final class HostTablePage {
      */
     static int viewingWeekIndex0() {
         if (!showing() || page == null) return -1;
+        int actual = page.rememberWeek();
+        return actual >= 0 ? actual : page.data == null ? -1 : page.targetIndex();
+    }
+
+    static int savedWeekIndex0() {
+        if (!showing()) return -1;
         page.rememberWeek();
-        if (page.viewWeekIndex >= 0) return page.viewWeekIndex;
-        return page.data == null ? -1 : page.data.currentWeekIndex0();
+        return page.selection.saved(page.weekDecision != null && page.weekDecision.advanced());
     }
 
     static void showMenu(View anchor) {
@@ -257,7 +277,14 @@ final class HostTablePage {
         final Activity act;
         final ClassLoader host;
         FrameLayout root;
+        FrameLayout surface;
         FrameLayout content;
+        WeekFinishButton weekButton;
+        final WeekPageSelection selection = new WeekPageSelection();
+        String tableIdentity;
+        WeekFinishSchedule.Decision weekDecision;
+        boolean preferFinishedOnEntry;
+        Method getPagerIndex;
         TextView head;
         TextView empty;
         View pagerView;
@@ -274,7 +301,7 @@ final class HostTablePage {
         long selectedId;
         String themeKey;
         String boundDay;
-        int boundConfiguration, boundCurrentWeek;
+        int boundConfiguration;
         final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
         final Runnable refreshData = () -> {
             refreshScheduled = false;
@@ -283,9 +310,18 @@ final class HostTablePage {
         final android.database.ContentObserver observer = new android.database.ContentObserver(ui) {
             @Override public void onChange(boolean selfChange) { markDirty(); }
         };
+        final Runnable weekBoundary = this::clockChanged;
+        final android.content.BroadcastReceiver clockReceiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) { clockChanged(); }
+        };
         final android.view.ViewTreeObserver.OnPreDrawListener keepOnTop = this::keepOnTop;
         private boolean keepOnTop() {
             if (!visible || root == null || page != this) return true;
+            // The pager's adjacent pages are already mounted. Only its selected index decides
+            // whether this title action is visible. No schedule evaluation on a scroll frame.
+            if (weekDecision != null && weekDecision.finished() && !weekDecision.advanced()
+                    && !dirty && !loading && !loadFailed && pager != null)
+                showWeekButton(weekDecision.offer(rememberWeek()));
             boolean changed = MainTabHook.enforceCourseTitle(act);
             BarMode.syncAccessories(act);
             if (root.getParent() instanceof ViewGroup) {
@@ -315,6 +351,14 @@ final class HostTablePage {
                     catch (Exception error) { Logx.w(T, "table observer: " + error); }
                 }
             }
+            android.content.IntentFilter clock = new android.content.IntentFilter();
+            clock.addAction(Intent.ACTION_DATE_CHANGED);
+            clock.addAction(Intent.ACTION_TIME_CHANGED);
+            clock.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+            clock.addAction(Intent.ACTION_SCREEN_ON);
+            if (android.os.Build.VERSION.SDK_INT >= 33)
+                act.registerReceiver(clockReceiver, clock, Context.RECEIVER_NOT_EXPORTED);
+            else act.registerReceiver(clockReceiver, clock);
         }
 
         void markDirty() {
@@ -325,6 +369,7 @@ final class HostTablePage {
             if (page != this) return;
             rememberWeek();
             dirty = true;
+            stopWeekAction();
             generation++;
             scheduleRefresh();
         }
@@ -347,24 +392,114 @@ final class HostTablePage {
             if (boundDay == null) return;
             boolean dayChanged = !boundDay.equals(dayKey());
             if (dayChanged || boundConfiguration != act.getResources().getConfiguration().hashCode()) {
-                rememberWeek();
-                if (dayChanged && viewWeekIndex == boundCurrentWeek) { viewWeekIndex = -1; pager = null; }
                 markDirty();
             }
         }
 
-        void rememberWeek() {
-            if (pager == null) return;
-            Object value = Ref.callName(pager, "getCurrentItem");
-            if (value instanceof Number) viewWeekIndex = ((Number)value).intValue();
+        int rememberWeek() {
+            if (pager != null && getPagerIndex != null) try {
+                int index = (Integer) getPagerIndex.invoke(pager);
+                selection.observed(index);
+                return index;
+            } catch (ReflectiveOperationException ignored) { }
+            return -1;
+        }
+
+        private int targetIndex() {
+            int follow = weekDecision == null ? data.currentWeekIndex0() : weekDecision.defaultIndex();
+            return selection.target(follow, data.weekCount);
+        }
+
+        private void showWeekButton(boolean show) {
+            if (root == null || show == (weekButton != null)) return;
+            if (!show) {
+                root.removeView(weekButton);
+                weekButton = null;
+                return;
+            }
+            weekButton = new WeekFinishButton(act, this::finishWeek);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, dp(52), Gravity.TOP | Gravity.END);
+            lp.setMarginEnd(dp(16));
+            root.addView(weekButton, lp);
+        }
+
+        private void stopWeekAction() {
+            ui.removeCallbacks(weekBoundary);
+            showWeekButton(false);
+        }
+
+        private void clockChanged() {
+            if (page != this || !onScreen()) return;
+            refreshForClockAndConfiguration();
+            updateWeekAndAlign();
+        }
+
+        private boolean onScreen() {
+            return visible && root != null && root.getWindowVisibility() == View.VISIBLE;
+        }
+
+        private void updateWeekAndAlign() {
+            updateFinishWeek();
+            if (visible && needsBind && !dirty && !loading && !loadFailed && data != null
+                    && data.sourceTableId == HostTableData.currentTableId(act)) bind(data, courses);
+        }
+
+        private void updateFinishWeek() {
+            ui.removeCallbacks(weekBoundary);
+            if (dirty || loading || loadFailed || data == null || data.sourceTableId != selectedId) {
+                showWeekButton(false);
+                return; // A provider change or failed read is not evidence of a free week.
+            }
+            int actual = rememberWeek();
+            weekDecision = null;
+            WeekFinishSchedule schedule = data.weekSchedule;
+            if (tableIdentity != null && schedule != null) {
+                if (!schedule.zone.equals(java.time.ZoneId.systemDefault())) { markDirty(); return; }
+                long now = System.currentTimeMillis();
+                long marked = TableSettings.finishedWeek(act, tableIdentity);
+                weekDecision = schedule.at(now, TableSettings.finishWeekEnabled(act, tableIdentity), marked);
+                // A new class moved into this week (or a new Monday) invalidates the old receipt.
+                if (marked != WeekFinishSchedule.NONE && !weekDecision.advanced())
+                    TableSettings.markFinishedWeek(act, tableIdentity, WeekFinishSchedule.NONE);
+                if (onScreen() && preferFinishedOnEntry) selection.entry(weekDecision.advanced());
+                if (onScreen() && weekDecision.nextCheck() > now)
+                    ui.postDelayed(weekBoundary, Math.max(1L, weekDecision.nextCheck() - now));
+            }
+            if (onScreen()) preferFinishedOnEntry = false;
+            if (actual >= 0 && targetIndex() != actual) needsBind = true;
+            showWeekButton(visible && weekDecision != null && weekDecision.offer(actual));
+        }
+
+        private void finishWeek() {
+            if (!visible || page != this) return;
+            refreshIfTableChanged(act);
+            updateFinishWeek(); // Recheck course changes, wall time, the setting and the visible page at tap.
+            if (dirty || loading || loadFailed || tableIdentity == null || weekDecision == null
+                    || !weekDecision.offer(rememberWeek())) return;
+            TableSettings.markFinishedWeek(act, tableIdentity, weekDecision.weekKey());
+            selection.choose(-1);
+            updateWeekAndAlign();
         }
 
         void mount(ViewGroup parent) {
-            root = new FrameLayout(act);
+            root = new FrameLayout(act) {
+                @Override protected void onWindowVisibilityChanged(int visibility) {
+                    super.onWindowVisibilityChanged(visibility);
+                    if (visibility != View.VISIBLE) {
+                        preferFinishedOnEntry = true;
+                        ui.removeCallbacks(weekBoundary);
+                    } else if (visible) ui.post(weekBoundary);
+                }
+            };
             root.setTag(TAG_VIEW);
             root.setClickable(true);
             root.setBackgroundColor(isNight() ? 0xFF101216 : 0xFFF7F8FA);
             root.setClipChildren(false);
+            // The native grid redraws fixed weekday text in its ViewGroupOverlay. Keep the
+            // interactive title button above that overlay, with normal touch/accessibility.
+            surface = new FrameLayout(act);
+            surface.setClipChildren(false);
+            root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
 
             // 顶栏：主页的 appbar 在课表页被收起（见 MainTabHook#applyTitle），这里自己给一行标题
             final int headerH = dp(52);
@@ -378,13 +513,13 @@ final class HostTablePage {
             FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, headerH);
             hlp.gravity = Gravity.TOP;
-            root.addView(head, hlp);
+            surface.addView(head, hlp);
 
             content = new FrameLayout(act);
             FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             clp.topMargin = headerH;
-            root.addView(content, clp);
+            surface.addView(content, clp);
 
             empty = new TextView(act);
             empty.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -410,7 +545,7 @@ final class HostTablePage {
             FrameLayout.LayoutParams elp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             elp.topMargin = headerH;
-            root.addView(empty, elp);
+            surface.addView(empty, elp);
 
             applyTheme();
             parent.addView(root, new FrameLayout.LayoutParams(
@@ -431,18 +566,18 @@ final class HostTablePage {
             themeKey = ThemeBg.signature(act);
             // 清掉旧层（背景层 + 遮罩层都挂在 root 上，和 pager 做兄弟，保证在课表之下）
             for (String tag : new String[]{TAG_BG, TAG_SCRIM}) {
-                for (ViewGroup g : new ViewGroup[]{root, content}) {
+                for (ViewGroup g : new ViewGroup[]{surface, content}) {
                     if (g == null) continue;
                     View old = g.findViewWithTag(tag);
                     if (old != null) g.removeView(old);
                 }
             }
             int type = ThemeStore.type(act);
-            root.setBackground(new ThemeWindowBackground(root, false));
+            surface.setBackground(new ThemeWindowBackground(surface, false));
             // 图片主题：让宿主课表的空格子变磨砂（详见 ThemeBg#imageActive）
             ThemeBg.applyTokens(act);
             if (head != null) head.setTextColor(headerInk(type));
-            CourseSurfaceRenderer.invalidateHeader(root);
+            CourseSurfaceRenderer.invalidateHeader(surface);
 
             boolean hasLayer = false;
             if (type == ThemeStore.TYPE_IMAGE) {
@@ -451,7 +586,7 @@ final class HostTablePage {
                     layer.setTag(TAG_BG);
                     // 挂在页面根上（不是 content）：content 底部有给底栏留的 padding，挂 content 时那块会露出白底，
                     // 看起来就是「底部一条白边」。挂 root 则整页（含顶部标题、底部留白）都被背景覆盖。
-                    root.addView(layer, 0, new FrameLayout.LayoutParams(
+                    surface.addView(layer, 0, new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                     hasLayer = true;
                 }
@@ -466,7 +601,7 @@ final class HostTablePage {
                 s.setTag(TAG_SCRIM);
                 s.setBackgroundColor(Color.argb(scrim, isNight() ? 0 : 255,
                         isNight() ? 0 : 255, isNight() ? 0 : 255));
-                root.addView(s, hasLayer ? 1 : 0, new FrameLayout.LayoutParams(
+                surface.addView(s, hasLayer ? 1 : 0, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             }
             Logx.i(T, "tablepage theme applied type=" + type + " scrim=" + scrim
@@ -496,6 +631,7 @@ final class HostTablePage {
             final long requestedId = HostTableData.currentTableId(act);
             final long started = android.os.SystemClock.elapsedRealtime();
             volatile String phase = "queued";
+            String identity;
             boolean retryOffered;
             java.util.concurrent.Future<?> future;
             final Runnable timeout = () -> {
@@ -525,6 +661,13 @@ final class HostTablePage {
                     loaded = HostTableData.load(act, cancel);
                     phase = "entities";
                     result = loaded.buildCourseList(host);
+                    if (loaded.calendarId > 0) try {
+                        identity = TableSettings.refreshLoaded(act, loaded.calendarId, loaded.calendar,
+                                CalendarBackend.LOCAL.equals(loaded.backendAuthority)).identity;
+                    } catch (Exception settingsError) {
+                        TableSettings.invalidate(loaded.calendarId);
+                        Logx.w(T, "课表交互设置未就绪: " + settingsError);
+                    }
                     cancel.throwIfCanceled();
                 } catch (Throwable error) { failure = error; }
                 final HostTableData d = loaded;
@@ -562,6 +705,7 @@ final class HostTablePage {
             }
             if (error != null) {
                 loadFailed = true;
+                stopWeekAction();
                 // An error is not an empty table. Keep a usable old page and offer a retry.
                 dirty = false;
                 Logx.e(T, "tablepage: read failed after " + lastLoadMs + "ms", error);
@@ -570,18 +714,17 @@ final class HostTablePage {
                 else if (visible) CurriculumIo.toast(act, "课表刷新失败，请稍后重试");
                 return;
             }
-            try {
-                if (d.calendarId > 0) TableSettings.refreshLoaded(act, d.calendarId, d.calendar,
-                        CalendarBackend.LOCAL.equals(d.backendAuthority));
-            } catch (Exception settingsError) {
-                TableSettings.invalidate(d.calendarId);
-                Logx.w(T, "课表交互设置未就绪: " + settingsError);
-            }
             boolean unchanged = d.sameContents(data);
             loadFailed = false;
             rememberWeek();
+            if (selectedId != current || (tableIdentity != null && task.identity != null && !tableIdentity.equals(task.identity))) {
+                selection.choose(-1);
+                selectedId = current;
+            }
+            tableIdentity = task.identity;
             data = d;
             courses = result;
+            updateFinishWeek();
             boolean clockChanged = !dayKey().equals(boundDay)
                     || boundConfiguration != act.getResources().getConfiguration().hashCode();
             needsBind |= !unchanged || pager == null || clockChanged;
@@ -598,7 +741,6 @@ final class HostTablePage {
             needsBind = false;
             boundDay = dayKey();
             boundConfiguration = act.getResources().getConfiguration().hashCode();
-            boundCurrentWeek = d.currentWeekIndex0();
             // 换数据：先把旧 pager 摘掉
             if (pagerView != null) {
                 content.removeView(pagerView);
@@ -619,6 +761,8 @@ final class HostTablePage {
                 return;
             }
             hideEmpty();
+            showWeekButton(visible && !dirty && !loading && !loadFailed && weekDecision != null
+                    && weekDecision.offer(rememberWeek()));
         }
 
         /** 把宿主适配器塞进 ViewPager2 —— 全部反射，模块工程不引 androidx */
@@ -653,16 +797,15 @@ final class HostTablePage {
                     // 关键：**上屏之前**先定好当前周。ViewPager2 会把它存成 pendingCurrentItem，
                     // 首次 layout 直接落在这一页 —— 否则会先画出第 1 周再跳过来（肉眼就是闪一下）。
                     // （宿主把 setCurrentItem 的名字也混淆了，按形参类型 (int, boolean) 找）
-                    // viewWeekIndex >= 0 表示用户刚选过周次：按那一周建页，和首屏是同一路径。
-                    final int idx = viewWeekIndex >= 0
-                            ? Math.max(0, Math.min(viewWeekIndex, Math.max(0, d.weekCount - 1)))
-                            : d.currentWeekIndex0();
+                    final int idx = targetIndex();
+                    if (getPagerIndex == null) getPagerIndex = vp2.getMethod("getCurrentItem");
                     HostCompat.pagerCurrentItem(vp2).invoke(pv, idx, false);
                     content.addView(pv, new FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                     Logx.i(T, "tablepage: 首屏定位 weekIndex=" + idx);
                     pagerView = pv;
                     pager = pv;
+                    selection.attached(idx);
                     adapter = ad;
                     Logx.i(T, "tablepage: 宿主课表已挂载 weeks=" + d.weekCount
                             + " courses=" + courses.size() + " weekIndex=" + d.currentWeekIndex0()
@@ -679,6 +822,7 @@ final class HostTablePage {
         private Object adapter;
 
         private void showEmpty(String text) {
+            showWeekButton(false);
             empty.setText(text);
             empty.setVisibility(View.VISIBLE);
             if (pagerView != null) pagerView.setVisibility(View.GONE);
@@ -691,32 +835,22 @@ final class HostTablePage {
 
         // ── 周次 ───────────────────────────────────────────────────────────
 
-        /**
-         * 当前看的是哪一周（0 起）；-1 = 跟随「本周」。
-         * 跳周走的是「按目标周重建页面」，和宿主 SchoolTimeTableActivity 选完周次后 refreshCourseData()
-         * 是同一个做法 —— 比在已有 ViewPager2 上 setCurrentItem 稳：
-         * 后者虽然能跳过去，但宿主的课表里时间列/日列是几块联动滚动区，跳完之后会残留几十像素的
-         * 横向偏移（左边「11周」和时间被切掉一截），重建就没有这个问题。
-         */
-        int viewWeekIndex = -1;
-
         void gotoWeek(int week) {
-            if (data == null) return;
-            rememberWeek();
-            int idx = Math.max(0, Math.min(week - 1, Math.max(0, data.weekCount - 1)));
-            boolean same = idx == (viewWeekIndex >= 0 ? viewWeekIndex : data.currentWeekIndex0());
-            if (same) {
-                // 已经在目标周：只做一次轻量对齐，不重建
-                if (pager != null) pagerTo(pager, idx, false);
-                Logx.i(T, "tablepage: 已在第 " + week + " 周，无需跳转");
+            selectWeek(week - 1);
+        }
+
+        void selectWeek(int index) {
+            int actual = rememberWeek();
+            preferFinishedOnEntry = false;
+            selection.choose(index);
+            if (data == null || pager == null || data.sourceTableId != HostTableData.currentTableId(act)) return;
+            int idx = targetIndex();
+            if (actual == idx) {
+                pagerTo(pager, idx, false);
                 return;
             }
-            viewWeekIndex = idx;
-            pager = null; // Provider notifications must not replace the requested week with the old pager's position.
-            Logx.i(T, "tablepage: jump week " + week + " (index " + idx + ") → 按目标周重建");
             // Keep the host's alignment-safe pager rebuild, but reuse the loaded snapshot.
-            if (courses != null && data.sourceTableId == HostTableData.currentTableId(act)) bind(data, courses);
-            else reload();
+            bind(data, courses);
         }
 
         /**

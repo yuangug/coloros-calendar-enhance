@@ -28,15 +28,29 @@ final class CourseOccurrence {
         return now >= start ? Phase.RUNNING : Phase.UPCOMING;
     }
 
-    int progress(long now) {
+    int progress(long now) { return progress(start, end, now); }
+
+    static int progress(long start, long end, long now) {
         if (now <= start) return 0;
         if (now >= end) return 10000;
         return (int) ((now - start) * 10000L / (end - start));
     }
 
-    String timing(long now) {
+    String timing(long now) { return timing(start, end, now); }
+
+    static String timing(long start, long end, long now) {
         if (now >= end) return "课程已结束";
-        if (now >= start) return "上课中 · 还剩 " + ((end - now + 59999L) / 60000L) + " 分钟";
-        return "距上课 " + ((start - now + 59999L) / 60000L) + " 分钟";
+        if (now >= start) return "上课中 · 还剩 " + minutesUntil(end, now) + " 分钟";
+        return "距上课 " + minutesUntil(start, now) + " 分钟";
+    }
+
+    static long minutesUntil(long target, long now) { return target <= now ? 0 : (target - now - 1) / 60000L + 1; }
+
+    /** Next phase, remaining-minute label, or visible progress update, bounded by expiry. */
+    static long nextIslandUpdate(long start, long end, long expires, long last, boolean visibleProgress) {
+        if (last >= end) return expires;
+        long phaseEnd = last < start ? start : end;
+        long next = Math.min(expires, last + Math.floorMod(phaseEnd - last - 1, 60000L) + 1);
+        return visibleProgress && last >= start ? Math.min(next, last + 5000L) : next;
     }
 }

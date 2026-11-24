@@ -413,7 +413,9 @@ final class MainTabHook {
                     if (HostTablePage.activity() == chain.getThisObject() && HostTablePage.showing()) {
                         android.os.Bundle state = (android.os.Bundle)chain.getArg(0);
                         state.putBoolean(TableEntryRoute.OPEN, true);
-                        state.putInt("lspx_course_week", HostTablePage.viewingWeekIndex0());
+                        state.putInt("lspx_course_week", HostTablePage.savedWeekIndex0());
+                        state.putLong("lspx_course_monday", WeekFinishSchedule.mondayOf(java.time.LocalDate.now()).toEpochDay());
+                        state.putLong("lspx_course_calendar", HostTableData.currentTableId((Activity)chain.getThisObject()));
                     }
                     return result;
                 });
@@ -428,7 +430,11 @@ final class MainTabHook {
                         Intent intent = activity.getIntent();
                         if (intent != null && !intent.getBooleanExtra(TableEntryRoute.OPEN, false)) {
                             intent.putExtra(TableEntryRoute.OPEN, true);
-                            intent.putExtra("selected_week", state.getInt("lspx_course_week", -1));
+                            long monday = WeekFinishSchedule.mondayOf(java.time.LocalDate.now()).toEpochDay();
+                            if (state.getLong("lspx_course_monday", WeekFinishSchedule.NONE) == monday
+                                    && state.getLong("lspx_course_calendar", -1) == HostTableData.currentTableId(activity))
+                                intent.putExtra("selected_week", state.getInt("lspx_course_week", -1));
+                            else intent.removeExtra("selected_week");
                         }
                     }
                     return result;
