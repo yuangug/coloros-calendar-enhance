@@ -29,9 +29,10 @@ final class CourseLiveSeedlingState {
     private static final class Entry {
         String key, service, backend, identity;
         long event, calendar, start, end, alarm, expires;
-        boolean force;
+        boolean force, independentIsland;
         volatile boolean closing;
         volatile boolean notificationReady;
+        volatile boolean seenThisProcess;
         int subscribedBoot = -1;
         int closeAttempts;
         long closeAttemptAt;
@@ -60,6 +61,7 @@ final class CourseLiveSeedlingState {
                 entry.calendar = data.getLong("calendar"); entry.start = data.getLong("start"); entry.end = data.getLong("end");
                 entry.alarm = data.getLong("alarm"); entry.backend = data.getString("backend"); entry.identity = data.getString("identity");
                 entry.force = data.getBoolean("force");
+                entry.independentIsland = data.optBoolean("independentIsland");
                 JSONArray widgets = data.optJSONArray("cardIds");
                 if (widgets == null) widgets = data.getJSONArray("widgets");
                 entry.subscribedBoot = data.optInt("subscribedBoot", -1);
@@ -108,6 +110,8 @@ final class CourseLiveSeedlingState {
                 entry.force = Boolean.TRUE.equals(Ref.callName(model, "isForceAlert")); entries.put(service, entry);
             }
             entry.cards.put(widget, card); entry.subscribedBoot = bootCount;
+            entry.independentIsland = CourseLiveCoordinator.independentIsland(item.key);
+            entry.seenThisProcess = true;
             updateNotificationReady(entry);
             save(entry); CourseLiveCoordinator.rememberClick(item, entry.alarm);
             CourseLiveCoordinator.requestTick();
@@ -190,21 +194,46 @@ final class CourseLiveSeedlingState {
             // It must consume the persisted identity before a provider read/adoption can restore it.
             restore();
             Entry entry = entries.get(service); if (entry == null) return;
-            boolean hadNotification = entry.notificationReady || isNotificationHost(card);
             entry.cards.remove(widget);
             updateNotificationReady(entry);
-            if (hadNotification && !entry.notificationReady)
-                CourseLiveCoordinator.nativeNotificationEnded(entry.key);
             if (entry.cards.isEmpty()) {
-                if (!alreadyClosed && !entry.closing && !isClosing(service))
+                if (!alreadyClosed && !entry.closing && !isClosing(service) && !otherNotification(entry)
+                        && !CourseLiveCoordinator.independentIsland(entry.key, entry.independentIsland))
                     CourseLiveCoordinator.dismiss(captured(entry));
                 confirmedClosed(entry);
-            } else save(entry);
+            } else { entry.last = ""; save(entry); }
+            CourseLiveCoordinator.requestTick();
         });
     }
 
     static boolean has(CourseOccurrence item) {
         for (Entry entry : entries.values()) if (entry.key.equals(item.key)) return true;
+        return false;
+    }
+
+    /** A persisted receipt is a routing identity, not evidence that either surface still exists. */
+    static boolean hasWindowReceipt(CourseOccurrence item) {
+        for (Entry entry : entries.values()) if (entry.key.equals(item.key) && entry.end == item.end
+                && !entry.closing && (entry.seenThisProcess || entry.notificationReady)) return true;
+        return false;
+    }
+
+    static String restorableService(CourseOccurrence item) {
+        for (Entry entry : entries.values()) if (entry.key.equals(item.key) && entry.end == item.end
+                && !entry.force && !entry.closing && entry.subscribedBoot == bootCount && bootCount >= 0)
+            return entry.service;
+        return null;
+    }
+
+    private static boolean otherNotification(Entry entry) {
+        for (Entry other : entries.values()) if (other != entry && !other.closing
+                && other.notificationReady && other.key.equals(entry.key)) return true;
+        return false;
+    }
+
+    static boolean hasOtherService(CourseOccurrence item, String service) {
+        for (Entry other : entries.values()) if (!other.service.equals(service) && !other.closing
+                && other.notificationReady && other.key.equals(item.key)) return true;
         return false;
     }
 
@@ -276,10 +305,12 @@ final class CourseLiveSeedlingState {
             CourseOccurrence item = CourseLiveCoordinator.find(entry.key);
             CourseLiveSettings.State settings = CourseLiveCoordinator.settings(item);
             if (item == null || settings == null || item.end != entry.end || CourseLiveCoordinator.isDismissed(item)
+                    || CourseLiveCoordinator.windowWithdrawn(item, now)
                     || now >= item.expiresAt(settings.retainMinutes)) { close(entry); continue; }
+            entry.independentIsland = CourseLiveCoordinator.independentIsland(entry.key);
             String current = item.timing(now) + ":" + settings.retainMinutes + ":" + settings.showProgress
                     + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end
-                    + ":" + CourseLiveCoordinator.astraOwnsCapsule(item);
+                    + ":" + CourseLiveCoordinator.astraOwnsCapsule(item) + ":" + CourseLiveCoordinator.keepVisible(item, now);
             if (current.equals(entry.last)) continue;
             entry.expires = item.expiresAt(settings.retainMinutes); save(entry);
             try {
@@ -297,7 +328,6 @@ final class CourseLiveSeedlingState {
     private static void close(Entry entry) {
         if (entries.get(entry.service) != entry) return;
         long now = System.currentTimeMillis();
-        if (!entry.closing) CourseLiveCoordinator.nativeNotificationEnded(entry.key);
         entry.closing = true;
         if (entry.closeAttempts >= MAX_CLOSE_ATTEMPTS) return;
         if (entry.closeAttemptAt > 0 && now - entry.closeAttemptAt < CLOSE_RETRY_MILLIS) {
@@ -368,6 +398,7 @@ final class CourseLiveSeedlingState {
             JSONObject data = new JSONObject().put("key", entry.key).put("event", entry.event).put("calendar", entry.calendar)
                     .put("start", entry.start).put("end", entry.end).put("alarm", entry.alarm).put("backend", entry.backend)
                     .put("expires", entry.expires)
+                    .put("independentIsland", entry.independentIsland)
                     .put("identity", entry.identity).put("force", entry.force).put("widgets", new JSONArray(entry.cards.keySet()))
                     .put("cardIds", cardIds).put("subscribedBoot", entry.subscribedBoot)
                     .put("closing", entry.closing).put("closeAttempts", entry.closeAttempts).put("closeAttemptAt", entry.closeAttemptAt);

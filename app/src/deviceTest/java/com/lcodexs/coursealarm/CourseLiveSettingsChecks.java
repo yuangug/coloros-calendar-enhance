@@ -24,7 +24,8 @@ final class CourseLiveSettingsChecks {
             CourseLiveSettings.State defaults = CourseLiveSettings.fromTableState(isolated, first);
             require(!defaults.enabled && defaults.retainOnClick && defaults.showProgress
                     && defaults.showDndButton && !defaults.autoDnd && defaults.retainMinutes == 5
-                    && !defaults.astraEnabled && defaults.astraStyle == CourseAstraStyle.TIMETABLE, "defaults");
+                    && !defaults.astraEnabled && defaults.astraStyle == CourseAstraStyle.TIMETABLE
+                    && !defaults.keepDuringCourse, "defaults; continuous activity is opt-in");
             require(!CourseLiveSettings.showExperiments(isolated), "experimental settings hidden by default");
             CourseLiveSettings.setShowExperiments(isolated, true);
             require(CourseLiveSettings.showExperiments(isolated), "show experimental settings persists");
@@ -49,6 +50,11 @@ final class CourseLiveSettingsChecks {
                     "legacy notification-only mode migrates with Astra disabled");
             require(CourseLiveSettings.fromTableState(isolated, second).showProgress, "separate table");
             require(CourseLiveSettings.fromTableState(isolated, reusedId).showProgress, "reused row ID");
+            require(preferences.edit().putBoolean("live_first_keep_during_course", true).commit(), "seed reminder window");
+            require(CourseLiveSettings.fromTableState(isolated, first).keepDuringCourse
+                    && !CourseLiveSettings.fromTableState(isolated, second).keepDuringCourse
+                    && !CourseLiveSettings.fromTableState(isolated, reusedId).keepDuringCourse,
+                    "continuous activity persists per stable table identity");
             require(preferences.edit().putString("live_first_astra_style", "phase").commit(), "seed style");
             require(CourseLiveSettings.fromTableState(isolated, first).astraStyle == CourseAstraStyle.PHASE
                     && CourseLiveSettings.fromTableState(isolated, second).astraStyle == CourseAstraStyle.TIMETABLE
@@ -63,7 +69,7 @@ final class CourseLiveSettingsChecks {
             require(reset.commit(), "new identity reset");
             CourseLiveSettings.State newTable = CourseLiveSettings.fromTableState(isolated, first);
             require(newTable.showProgress && !newTable.autoDnd && newTable.retainMinutes == 5 && !newTable.astraEnabled
-                    && newTable.astraStyle == CourseAstraStyle.TIMETABLE,
+                    && newTable.astraStyle == CourseAstraStyle.TIMETABLE && !newTable.keepDuringCourse,
                     "new table live defaults");
             require(preferences.getBoolean("drag_first", false), "live reset leaves unrelated settings");
             require(CourseLiveSettings.showExperiments(isolated), "table reset does not hide experiments");
@@ -83,7 +89,8 @@ final class CourseLiveSettingsChecks {
                     .put("reusedIdIsolation", true).put("invalidValueFallback", true)
                     .put("newTableReset", true).put("unrelatedPreferencePreserved", true)
                     .put("retentionValidation", true).put("independentAstraToggle", true)
-                    .put("legacyModeMigration", true).put("capsuleStyleIsolation", true);
+                    .put("legacyModeMigration", true).put("capsuleStyleIsolation", true)
+                    .put("continuousActivityDefaultOffAndTableScoped", true);
         } finally {
             preferences.edit().clear().commit();
             host.deleteSharedPreferences(testFile);

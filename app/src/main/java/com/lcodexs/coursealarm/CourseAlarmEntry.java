@@ -79,6 +79,7 @@ public final class CourseAlarmEntry extends XposedModule {
             return;
         }
 
+        if (PKG_CALENDAR.equals(pkg)) ShiguangCatalog.setModulePath(getModuleApplicationInfo().sourceDir);
         Prefs.init(app);
 
         new Handler(Looper.getMainLooper()).post(() -> {

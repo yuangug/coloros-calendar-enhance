@@ -195,11 +195,13 @@ final class TableSettingsPage {
                     .getConstructor(Context.class, AttributeSet.class).newInstance(activity, null);
             invoke(tests, "setKey", "lspx_course_live_experiments");
             invoke(tests, "setTitle", "测试功能");
-            invoke(tests, "setVisible", CourseLiveSettings.showExperiments(activity));
+            invoke(tests, "setVisible", false); // Reveal with the saved values already bound.
             binding.testCategory = new WeakReference<>(tests);
             invoke(screen, "addPreference", tests);
             addSwitch(activity, host, tests, binding, CourseLiveSettings.ENABLED,
                     "启用课程实时活动增强", "增强通知栏中的原生日历实时活动；需要系统界面作用域");
+            addSwitch(activity, host, tests, binding, CourseLiveSettings.KEEP_DURING_COURSE,
+                    "从课前提醒持续显示到下课", "按「课程提醒」设置的时间持续显示实时活动和流体云；手动关闭后本节不再显示");
             addSwitch(activity, host, tests, binding, CourseLiveSettings.ASTRA_ENABLED,
                     "启用星河岛增强", "独立接管课程胶囊并调用星河岛显示展开卡片");
             CourseAstraStyle[] styles = CourseAstraStyle.values();
@@ -220,7 +222,11 @@ final class TableSettingsPage {
                     new String[]{"0", "1", "5", "10"}, "5");
             Object liveStatus = newPreference(activity, host, "COUIPreference", binding, LIVE_STATUS,
                     "运行状态", "正在读取状态");
-            invoke(liveStatus, "setSelectable", false);
+            listener(host, liveStatus, "setOnPreferenceClickListener", args -> {
+                if (binding.live != null && binding.live.astraEnabled)
+                    CourseLiveCoordinator.connectIsland(activity, binding.identity);
+                return true;
+            });
             invoke(tests, "addPreference", liveStatus);
             addMenu(activity, host, tests, binding, PERMISSION,
                     "免打扰权限", "正在读取权限状态", () -> openPermission(binding, false));
@@ -250,8 +256,8 @@ final class TableSettingsPage {
                 activity.runOnUiThread(() -> {
                     if (activity.isDestroyed() || activity.isFinishing()) return;
                     Object category = binding.testCategory.get();
-                    if (category != null) {
-                        try { invoke(category, "setVisible", visible); }
+                    if (!visible && category != null) {
+                        try { invoke(category, "setVisible", false); }
                         catch (Exception error) { failed(activity, "测试配置显示失败", error); }
                     }
                     if (visible) refresh(binding);
@@ -285,6 +291,9 @@ final class TableSettingsPage {
                     binding.dnd = dnd;
                     binding.scope = scope;
                     update(binding);
+                    Object tests = binding.testCategory.get();
+                    if (tests != null) try { invoke(tests, "setVisible", testVisible && CourseLiveSettings.showExperiments(activity)); }
+                    catch (Exception e) { failed(activity, "测试配置显示失败", e); }
                     if (binding.awaitingAutoPermission) {
                         binding.awaitingAutoPermission = false;
                         if (permissionGranted(dnd)) save(binding, CourseLiveSettings.AUTO_DND, true);
@@ -302,12 +311,11 @@ final class TableSettingsPage {
         });
     }
 
-    private static void save(Binding binding, String key, Object value) {
+    private static boolean save(Binding binding, String key, Object value) {
         Activity activity = binding.activity.get();
-        if (activity == null || binding.saving || binding.invalid || binding.live == null) return;
+        if (activity == null || binding.saving || binding.invalid || binding.live == null) return false;
         binding.saving = true;
         int generation = ++binding.generation;
-        update(binding);
         if (CourseLiveSettings.ENABLED.equals(key) && Boolean.TRUE.equals(value)) {
             ResultReceiver callback = new ResultReceiver(new Handler(Looper.getMainLooper())) {
                 @Override protected void onReceiveResult(int resultCode, Bundle result) {
@@ -333,9 +341,10 @@ final class TableSettingsPage {
                     }
                 });
             });
-            return;
+            return true;
         }
         persist(binding, activity, key, value, generation);
+        return true;
     }
 
     private static void scopeFailed(Binding binding, Activity activity, int generation, Bundle result) {
@@ -399,7 +408,7 @@ final class TableSettingsPage {
         Activity activity = binding.activity.get();
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
         try {
-            boolean editable = !binding.saving && !binding.invalid && binding.live != null;
+            boolean editable = !binding.invalid && binding.live != null;
             for (Map.Entry<String, WeakReference<Object>> entry : binding.preferences.entrySet()) {
                 Object preference = entry.getValue().get();
                 if (preference == null) continue;
@@ -408,14 +417,15 @@ final class TableSettingsPage {
                 boolean status = PERMISSION.equals(key) || COMPATIBILITY.equals(key) || LIVE_STATUS.equals(key);
                 boolean parent = SWITCH.equals(key) || FINISH_WEEK.equals(key) || CourseLiveSettings.ENABLED.equals(key)
                         || CourseLiveSettings.ASTRA_ENABLED.equals(key) || CourseLiveSettings.RETAIN_ON_CLICK.equals(key)
-                        || CourseLiveSettings.ASTRA_STYLE.equals(key);
+                        || CourseLiveSettings.ASTRA_STYLE.equals(key) || CourseLiveSettings.KEEP_DURING_COURSE.equals(key);
                 boolean granted = binding.scope != null && binding.scope.getBoolean("success");
                 boolean anyLive = binding.live != null && (binding.live.astraEnabled || binding.live.enabled && granted);
                 boolean dependent = CourseLiveSettings.SHOW_PROGRESS.equals(key)
                         || CourseLiveSettings.SHOW_DND_BUTTON.equals(key)
                         || CourseLiveSettings.AUTO_DND.equals(key)
                         || CourseLiveSettings.RETAIN_MINUTES.equals(key);
-                invoke(preference, "setEnabled", status || editable && (parent || dependent && anyLive));
+                boolean retention = CourseLiveSettings.RETAIN_MINUTES.equals(key) && binding.live != null && binding.live.keepDuringCourse;
+                invoke(preference, "setEnabled", status || editable && (parent || dependent && anyLive || retention));
                 if (binding.invalid && !status) {
                     invoke(preference, "setSummary", "课表已变化或不可读取，请返回后重新打开");
                 } else if (binding.live != null && !status) {
@@ -423,29 +433,33 @@ final class TableSettingsPage {
                     else if (FINISH_WEEK.equals(key)) invoke(preference, "setChecked", binding.finishWeekEnabled);
                     else if (CourseLiveSettings.RETAIN_MINUTES.equals(key)) {
                         invoke(preference, "setValue", Integer.toString(binding.live.retainMinutes));
-                        invoke(preference, "setAssignment", CourseLiveSettings.retentionLabel(binding.live.retainMinutes));
+                        textIfChanged(preference, "Assignment", CourseLiveSettings.retentionLabel(binding.live.retainMinutes));
                     } else if (CourseLiveSettings.ASTRA_STYLE.equals(key)) {
                         invoke(preference, "setValue", binding.live.astraStyle.id);
-                        invoke(preference, "setAssignment", binding.live.astraStyle.label);
+                        textIfChanged(preference, "Assignment", binding.live.astraStyle.label);
                     } else invoke(preference, "setChecked", binding.live.flag(key)
                             && (!CourseLiveSettings.ENABLED.equals(key) || granted));
                 }
                 if (!binding.invalid && CourseLiveSettings.ENABLED.equals(key))
-                    invoke(preference, "setSummary", SCOPE_NOTE + (binding.live != null && binding.live.enabled
+                    textIfChanged(preference, "Summary", SCOPE_NOTE + (binding.live != null && binding.live.enabled
                             ? granted ? "\n如未生效，请重启系统界面。" : "\n" + (binding.scope == null ? "尚未确认作用域"
                                 : binding.scope.getString("message", "系统界面作用域未授权"))
                             : ""));
             }
             Object permission = binding.preference(PERMISSION);
             if (permission != null) {
-                invoke(permission, "setAssignment", permissionGranted(binding.dnd) ? "已授权" : "未就绪");
-                invoke(permission, "setSummary", permissionSummary(binding.dnd));
+                textIfChanged(permission, "Assignment", permissionGranted(binding.dnd) ? "已授权" : "未就绪");
+                textIfChanged(permission, "Summary", permissionSummary(binding.dnd));
             }
             Object compatibility = binding.preference(COMPATIBILITY);
-            if (compatibility != null) invoke(compatibility, "setSummary", CourseLiveCapabilities.summary(activity));
+            if (compatibility != null) textIfChanged(compatibility, "Summary", CourseLiveCapabilities.summary(activity));
             Object liveStatus = binding.preference(LIVE_STATUS);
-            if (liveStatus != null) invoke(liveStatus, "setSummary",
-                    CourseLiveCapabilities.status(activity, binding.live, binding.scope));
+            if (liveStatus != null) {
+                boolean canConnect = editable && binding.live.astraEnabled;
+                invoke(liveStatus, "setSelectable", canConnect);
+                textIfChanged(liveStatus, "Summary", CourseLiveCapabilities.status(activity, binding.live, binding.scope)
+                        + (canConnect ? "\n如系统限制后台启动，可点此连接模块并登记提醒时间。" : ""));
+            }
         } catch (Exception reflectionError) { failed(activity, "课表设置显示失败", reflectionError); }
     }
 
@@ -459,8 +473,9 @@ final class TableSettingsPage {
                                   String key, String title, String summary) throws Exception {
         Object preference = newPreference(activity, host, "COUISwitchPreference", binding, key, title, summary);
         listener(host, preference, "setOnPreferenceChangeListener", args -> {
-            if (args != null && args.length == 2) save(binding, key, Boolean.TRUE.equals(args[1]));
-            return false; // Reflect checked state only after the identity-checked commit succeeds.
+            // COUI rolls the switch back immediately when the listener returns false.
+            // Let the native animation settle once; only revert if permission or persistence fails.
+            return args != null && args.length == 2 && save(binding, key, Boolean.TRUE.equals(args[1]));
         });
         invoke(category, "addPreference", preference);
     }
@@ -481,9 +496,8 @@ final class TableSettingsPage {
         invoke(preference, "setValue", initialValue);
         invoke(preference, "setAssignment", labels[indexOf(values, initialValue)]);
         listener(host, preference, "setOnPreferenceChangeListener", args -> {
-            if (args != null && args.length == 2 && args[1] instanceof String selected
-                    && Arrays.asList(values).contains(selected)) save(binding, key, selected);
-            return false;
+            return args != null && args.length == 2 && args[1] instanceof String selected
+                    && Arrays.asList(values).contains(selected) && save(binding, key, selected);
         });
         invoke(category, "addPreference", preference);
     }
@@ -571,6 +585,12 @@ final class TableSettingsPage {
     }
 
     /** Match parameter types, especially CharSequence versus resource-ID overloads. */
+    private static void textIfChanged(Object item, String property, CharSequence value) throws Exception {
+        Object previous = invoke(item, "get" + property);
+        if (!android.text.TextUtils.equals(previous instanceof CharSequence ? (CharSequence) previous : null, value))
+            invoke(item, "set" + property, value);
+    }
+
     private static Object invoke(Object owner, String name, Object... args) throws Exception {
         for (Class<?> type = owner.getClass(); type != null; type = type.getSuperclass()) {
             for (Method method : type.getDeclaredMethods()) {

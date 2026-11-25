@@ -22,8 +22,11 @@ final class CourseLiveHooks {
     private static final String ROOT = "com.android.calendar.seedling.notificationfluidcard.";
     private static final Map<Notification, Object> candidates = Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<Long> retainedClick = new ThreadLocal<>();
+    private static final ThreadLocal<CourseOccurrence> windowDispatch = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> coldSend = new ThreadLocal<>();
     private static final Map<Activity, CourseOccurrence> detailClicks = Collections.synchronizedMap(new WeakHashMap<>());
-    private static Object fluidManager;
+    private static volatile Object fluidManager;
+    private static volatile CourseWindowPublisher windowPublisher;
     private static ClassLoader host;
 
     static void install(XposedModule module, ClassLoader loader, Context app) {
@@ -187,7 +190,9 @@ final class CourseLiveHooks {
         module.hook(Ref.methodOf(managerClass, "handleMethodCalls", String.class, Bundle.class))
                 .setId("course_live_manual_fluid_close").intercept(chain -> {
                     String method = (String) chain.getArg(0); Bundle extras = (Bundle) chain.getArg(1);
-                    if (extras != null && "closeReminder".equals(method)) {
+                    if (extras != null && ("closeReminder".equals(method) || "laterReminder".equals(method)
+                            && CourseLiveCoordinator.keepVisible(occurrence(model(extras.getString("serviceInstanceId"))),
+                                    System.currentTimeMillis()))) {
                         String service = extras.getString("serviceInstanceId");
                         CourseLiveCoordinator.dismiss(occurrence(model(service)));
                         CourseLiveSeedlingState.manualClose(service);
@@ -203,7 +208,9 @@ final class CourseLiveHooks {
                     || CourseLiveSeedlingState.isClosing(service);
             Object result = chain.proceed();
             CourseLiveSeedlingState.unsubscribed(chain.getArg(1), closed);
-            if (item != null && !closed && Boolean.TRUE.equals(Ref.callName(proxy, "checkAllUnSubscribed")))
+            if (item != null && !closed && !CourseLiveCoordinator.independentIsland(item.key)
+                    && !CourseLiveSeedlingState.hasOtherService(item, service)
+                    && Boolean.TRUE.equals(Ref.callName(proxy, "checkAllUnSubscribed")))
                 CourseLiveCoordinator.dismiss(item);
             return result;
         });
@@ -218,20 +225,60 @@ final class CourseLiveHooks {
         module.hook(send).setId("course_live_fluid_instance_identity").intercept(chain -> {
             Object info = chain.getArg(0);
             if (!Boolean.TRUE.equals(Ref.callName(info, "isCourse"))) return chain.proceed();
+            Object sender = chain.getThisObject();
+            if (coldSend.get() == null && CourseLiveCoordinator.afterColdRead(() -> {
+                coldSend.set(true);
+                try { send.invoke(sender, info); }
+                catch (ReflectiveOperationException error) { Logx.e(CourseAlarmEntry.TAG, "cold course reminder", error); }
+                finally { coldSend.remove(); }
+            })) return null;
             CourseOccurrence item = CourseLiveCoordinator.find(CourseLiveCoordinator.number(info, "getTargetId"),
                     CourseLiveCoordinator.number(info, "getBeginTime"));
+            CourseWindowPublisher publisher = windowPublisher;
+            boolean fallback = publisher != null && publisher.owns(info);
+            if (fallback && item == null) return null;
             if (item != null) {
                 if (CourseLiveCoordinator.suppressed(item)) return null;
+                boolean force = Boolean.TRUE.equals(Ref.callName(info, "isForceAlert"));
+                boolean continuous = CourseLiveCoordinator.keepVisible(item, System.currentTimeMillis());
+                // The course may have been dismissed or changed while the system permission check was in flight.
+                if (fallback && (!continuous || item.end != CourseLiveCoordinator.number(info, "getEndTime")
+                        || item.reminderAt != CourseLiveCoordinator.number(info, "getAlarmTime"))) return null;
+                // A real reminder adopts an existing catch-up card even if its duplicate START is skipped below.
+                if (!fallback) CourseLiveCoordinator.nativeStart(item);
                 for (Map.Entry<String, Object> entry : cards().entrySet()) {
                     if (CourseLiveSeedlingState.isClosing(entry.getKey())) continue;
-                    CourseOccurrence existing = occurrence(model(entry.getKey()));
-                    if (existing != null && existing.key.equals(item.key)) {
+                    Object current = model(entry.getKey());
+                    CourseOccurrence existing = occurrence(current);
+                    if (existing != null && existing.key.equals(item.key)
+                            && CourseLiveCoordinator.number(current, "getEndTime") == item.end
+                            && (!continuous || subscribedProxy(entry.getValue()))
+                            && !(continuous && force && !Boolean.TRUE.equals(Ref.callName(current, "isForceAlert")))) {
                         Ref.callName(entry.getValue(), "updateFluidCard", (Object) null); return null;
                     }
+                }
+                if (continuous && !force) {
+                    if (CourseLiveSeedlingState.hasWindowReceipt(item) || !CourseLiveCoordinator.beginWindowSend(item, fallback)) return null;
+                    CourseOccurrence previous = windowDispatch.get();
+                    windowDispatch.set(item);
+                    try { return chain.proceed(); }
+                    finally { if (previous == null) windowDispatch.remove(); else windowDispatch.set(previous); }
                 }
             }
             return chain.proceed();
         });
+        try {
+            CourseWindowPublisher publisher = new CourseWindowPublisher(loader, send);
+            // Calendar takes the SDK-generated ID synchronously, before starting its coroutine.
+            Method id = Class.forName("com.oplus.pantanal.seedling.util.BaseTool", false, loader).getMethod("genServiceInstanceId");
+            module.hook(id).setId("course_window_same_native_instance").intercept(chain -> {
+                String generated = (String) chain.proceed();
+                CourseOccurrence item = windowDispatch.get();
+                return item == null ? generated : CourseLiveCoordinator.windowService(item, generated);
+            });
+            windowPublisher = publisher;
+        }
+        catch (ReflectiveOperationException error) { Logx.e(CourseAlarmEntry.TAG, "course reminder window entry unavailable", error); }
         Class<?> modelClass = Class.forName(ROOT + "entity.FluidSeedingModel", false, loader);
         module.hook(Ref.methodOf(modelClass, "getTimingDesc")).setId("course_live_native_status").intercept(chain -> {
             CourseOccurrence item = occurrence(chain.getThisObject());
@@ -257,8 +304,11 @@ final class CourseLiveHooks {
                             .put("courseProgressEnabled", state.astraEnabled && state.showProgress);
                     if (state.astraEnabled && state.showProgress)
                         data.put("courseProgress", item.progress(System.currentTimeMillis()));
-                    if (state.astraEnabled && !Boolean.TRUE.equals(Ref.callName(chain.getArg(2), "isForceAlert")))
+                    if (state.astraEnabled)
                         data.put("courseCapsuleRouting", true);
+                    if (CourseLiveCoordinator.keepVisible(item, System.currentTimeMillis())
+                            && !Boolean.TRUE.equals(Ref.callName(chain.getArg(2), "isForceAlert")))
+                        data.put("courseKeepVisible", true);
                 }
             }
             return result;
@@ -325,6 +375,32 @@ final class CourseLiveHooks {
             if (candidate != null && candidate.key.equals(item.key)) return true;
         }
         return false;
+    }
+
+    static boolean hasWindowCard(CourseOccurrence item) {
+        if (CourseLiveSeedlingState.hasWindowReceipt(item)) return true;
+        for (String service : cards().keySet()) {
+            if (CourseLiveSeedlingState.isClosing(service)) continue;
+            Object model = model(service);
+            CourseOccurrence existing = occurrence(model);
+            if (existing != null && existing.key.equals(item.key) && subscribedProxy(cards().get(service))
+                    && CourseLiveCoordinator.number(model, "getEndTime") == item.end) return true;
+        }
+        return false;
+    }
+
+    private static boolean subscribedProxy(Object proxy) {
+        Object delegate = Ref.field(proxy, "$$delegate_0");
+        return Ref.callName(delegate, "getNowCard") != null && !Boolean.TRUE.equals(Ref.callName(delegate, "isClosedReminder"));
+    }
+
+    static void requestWindowCard(Context app, CourseOccurrence item, String account, String type) {
+        CourseWindowPublisher publisher = windowPublisher;
+        if (publisher == null) return;
+        try { publisher.send(app, manager(), item, account, type); }
+        catch (ReflectiveOperationException | RuntimeException error) {
+            Logx.e(CourseAlarmEntry.TAG, "course reminder window dispatch", error);
+        }
     }
 
     static CourseOccurrence occurrence(Object model) {

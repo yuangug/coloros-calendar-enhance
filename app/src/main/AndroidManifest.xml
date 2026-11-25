@@ -37,6 +37,18 @@
                 <action android:name="android.service.notification.ConditionProviderService" />
             </intent-filter>
         </service>
+        <activity android:name="com.lcodexs.coursealarm.CourseIslandSetupActivity"
+            android:excludeFromRecents="true" android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <receiver android:name="com.lcodexs.coursealarm.CourseIslandWake" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name="com.lcodexs.coursealarm.CourseDndReceiver"
             android:exported="false">

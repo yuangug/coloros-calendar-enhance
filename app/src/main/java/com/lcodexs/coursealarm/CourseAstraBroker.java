@@ -33,16 +33,17 @@ final class CourseAstraBroker {
     private static final Pattern ID = Pattern.compile(Pattern.quote(CourseAstraIsland.PREFIX) + "[A-Za-z0-9_-]{43}");
     private static final Map<String, Session> active = new HashMap<>();
     private static final Map<String, Long> pendingEnds = new HashMap<>();
+    private static final Map<String, Long> dismissed = new HashMap<>();
     private static final Handler clock = new Handler(Looper.getMainLooper());
     private static IslandClient client;
 
     private record Course(String title, String metadata, long start, long end, long expires,
-                          boolean showProgress, CourseAstraStyle style, PendingIntent open, PendingIntent dnd,
+                          boolean showProgress, CourseBreaks breaks, CourseAstraStyle style, PendingIntent open, PendingIntent dnd,
                           boolean dndActive, PendingIntent dismiss) { }
 
     private static final class Session {
         Course course;
-        long updated;
+        long updated, retryAt;
         boolean expanded;
         Session(Course course) { this.course = course; }
     }
@@ -63,29 +64,43 @@ final class CourseAstraBroker {
             }
             long start = request.getLong("start"), end = request.getLong("end"), expires = request.getLong("expires");
             long now = System.currentTimeMillis();
+            dismissed.values().removeIf(until -> until <= now);
+            if (dismissed.containsKey(id)) return result(CourseAstraIsland.DISMISSED);
             if (start <= 0 || end <= start || end - start > 2L * 86400000L || expires < end
                     || expires - end > 600000L || expires <= now || expires - now > 3L * 86400000L)
                 return result(CourseAstraIsland.UNAVAILABLE);
+            CourseIslandWake.replace(context, request.getLongArray("islandDeadlines"), request.getString("validationToken"));
             String status = ensureClient(context);
-            if (!CourseAstraIsland.ACCEPTED.equals(status)) return result(status);
+            if (!CourseAstraIsland.ACCEPTED.equals(status) && !CourseAstraIsland.CONNECTING.equals(status))
+                return result(status);
             String title = CourseAstraIsland.limit(request.getString("title", "课程"), 128);
             Course course = new Course(title.isBlank() ? "课程" : title, metadata(request, start, end),
-                    start, end, expires, request.getBoolean("showProgress"),
+                    start, end, expires, request.getBoolean("showProgress"), CourseBreaks.decode(start, end, request.getLongArray("breaksV1")),
                     CourseAstraStyle.fromId(request.getString("style")),
                     pending(request, "open", false), pending(request, "dnd", true),
                     request.getBoolean("dndActive"), pending(request, "dismiss", false));
             Session previous = active.get(id);
-            if (previous != null && previous.course.equals(course)) return result(CourseAstraIsland.ACCEPTED);
-            boolean first = previous == null && !client.listMine().contains(id);
+            if (CourseAstraIsland.CONNECTING.equals(status)) {
+                // READY can arrive just after this provider call. Keep the validated payload
+                // until then, without requiring Calendar to start our process a second time.
+                Session waiting = previous == null ? new Session(course) : previous;
+                waiting.course = course; waiting.retryAt = course.expires();
+                pendingEnds.remove(id); active.put(id, waiting); schedule();
+                return result(CourseAstraIsland.CONNECTING);
+            }
+            boolean first = !client.listMine().contains(id);
+            if (!first && previous != null && previous.course.equals(course) && now < nextUpdate(previous)
+                    && previous.retryAt == 0) return result(CourseAstraIsland.ACCEPTED);
             IslandResult response = publish(id, course, now, first);
             if (!response.getAccepted()) {
                 Log.w(TAG, "course activity rejected: " + response);
                 return result(response == IslandResult.NOT_CONNECTED || response == IslandResult.RATE_LIMITED
+                        || response == IslandResult.BUSY || response == IslandResult.QUOTA_EXCEEDED
                         ? CourseAstraIsland.CONNECTING : CourseAstraIsland.UNAVAILABLE);
             }
             pendingEnds.remove(id);
             Session session = previous == null ? new Session(course) : previous;
-            session.course = course; session.updated = now; active.put(id, session);
+            session.course = course; session.updated = now; session.retryAt = 0; active.put(id, session);
             schedule();
             return result(CourseAstraIsland.ACCEPTED);
         } catch (RuntimeException | LinkageError error) {
@@ -97,35 +112,50 @@ final class CourseAstraBroker {
     private static String ensureClient(Context context) {
         if (client == null || client.getState() == IslandClient.State.NOT_INSTALLED) {
             IslandClient next = new IslandClient(context.getApplicationContext());
-            if (!next.isHostInstalled()) return CourseAstraIsland.UNAVAILABLE;
+            if (!next.isHostInstalled()) return CourseAstraIsland.MISSING;
             client = next;
             next.setCallback(new IslandCallback() {
                 @Override public void onStateChanged(IslandClient.State state) {
-                    if (state == IslandClient.State.READY) clock.post(TICK);
+                    if (state == IslandClient.State.READY) clock.post(() -> reconnected(next));
                 }
                 @Override public void onAction(String activityId, String actionId) {
                     if (DND.equals(actionId)) sendAction(activityId, false);
                 }
                 @Override public void onExpanded(String activityId) { expanded(activityId, true); }
                 @Override public void onCollapsed(String activityId) { expanded(activityId, false); }
-                @Override public void onDismissed(String activityId) { expanded(activityId, false); }
+                @Override public void onDismissed(String activityId) {
+                    synchronized (CourseAstraBroker.class) {
+                        Session s = active.get(activityId);
+                        if (client != next || s == null) return;
+                        dismissed.put(activityId, s.course.expires());
+                        sendAction(activityId, true);
+                        end(activityId);
+                        schedule();
+                    }
+                }
                 @Override public void onEnded(String activityId, EndReason reason) {
                     synchronized (CourseAstraBroker.class) {
-                        pendingEnds.remove(activityId);
-                        if (reason == EndReason.REMOVED && next.isReady()) sendAction(activityId, true);
-                        else active.remove(activityId);
+                        if (client != next) return;
+                        if (pendingEnds.remove(activityId) == null && active.containsKey(activityId)) {
+                            Session s = active.get(activityId);
+                            // Both REMOVED (system) and EXPIRED can precede our deadline.
+                            // The separate onDismissed callback is the only user dismissal.
+                            if (System.currentTimeMillis() < s.course.expires()) s.retryAt = System.currentTimeMillis() + 1500;
+                            else active.remove(activityId);
+                        }
                         schedule();
                     }
                 }
             });
             next.connect();
         }
-        return client.isReady() ? CourseAstraIsland.ACCEPTED : client.getState() == IslandClient.State.WAITING
-                ? CourseAstraIsland.CONNECTING : CourseAstraIsland.UNAVAILABLE;
+        return client.isReady() ? CourseAstraIsland.ACCEPTED : client.getState() == IslandClient.State.REJECTED
+                ? CourseAstraIsland.UNAVAILABLE : CourseAstraIsland.CONNECTING;
     }
 
     private static IslandResult publish(String id, Course course, long now, boolean first) {
-        String subtitle = CourseOccurrence.timing(course.start(), course.end(), now);
+        String subtitle = course.showProgress() ? course.breaks().timing(course.start(), course.end(), now)
+                : CourseOccurrence.timing(course.start(), course.end(), now);
         String start = timeLabel(course.start()), end = timeLabel(course.end());
         String details = joinDetails(start + "–" + end, course.metadata());
         int progress = course.showProgress() && now >= course.start()
@@ -137,8 +167,8 @@ final class CourseAstraBroker {
         if (progress >= 0) {
             ProgressCard.Builder builder = new ProgressCard.Builder(course.title()).setSubtitle(subtitle)
                     .setImage(CourseAstraGlyphs.TIMETABLE)
-                    .setBody(course.metadata().isEmpty() ? null : course.metadata())
-                    .setLabels(start, end).setProgress(fraction);
+                    .setBody(course.metadata().isEmpty() ? null : course.metadata());
+            configureProgress(builder, course.breaks(), course.start(), course.end(), now, start, end);
             if (button != null) builder.addButton(button);
             card = builder.build();
         } else {
@@ -175,6 +205,13 @@ final class CourseAstraBroker {
 
     private static String timeLabel(long time) { return DateFormat.format("HH:mm", time).toString(); }
 
+    static void configureProgress(ProgressCard.Builder builder, CourseBreaks breaks, long start, long end,
+                                  long now, String startLabel, String endLabel) {
+        builder.setProgress(breaks.fraction(start, end, now));
+        if (breaks.staged()) builder.setStages(breaks.labels(startLabel, endLabel));
+        else builder.setLabels(startLabel, endLabel);
+    }
+
     private static String joinDetails(String first, String second) {
         return first.isEmpty() ? second : second.isEmpty() ? first : first + " · " + second;
     }
@@ -189,8 +226,21 @@ final class CourseAstraBroker {
 
     private static long nextUpdate(Session session) {
         Course course = session.course;
-        return CourseOccurrence.nextIslandUpdate(course.start(), course.end(), course.expires(), session.updated,
+        if (session.retryAt != 0) return Math.min(course.expires(), session.retryAt);
+        long next = CourseOccurrence.nextIslandUpdate(course.start(), course.end(), course.expires(), session.updated,
                 session.expanded && course.showProgress());
+        return course.showProgress() ? Math.min(next, course.breaks().nextChange(session.updated)) : next;
+    }
+
+    private static synchronized void reconnected(IslandClient source) {
+        if (client != source || !source.isReady()) return;
+        long now = System.currentTimeMillis();
+        for (Session s : active.values()) s.retryAt = now;
+        tick();
+    }
+
+    static synchronized void onBoundary() {
+        if (!active.isEmpty()) tick(); // Only sessions still in memory; never replay a saved course.
     }
 
     private static void schedule() {
@@ -215,9 +265,14 @@ final class CourseAstraBroker {
             Session session = entry.getValue();
             if (now >= session.course.expires()) end(entry.getKey());
             else if (now >= nextUpdate(session)) {
-                try { if (ready) publish(entry.getKey(), session.course, now, false); }
-                catch (RuntimeException error) { Log.w(TAG, "course activity update failed", error); }
-                session.updated = now;
+                try {
+                    boolean first = ready && session.retryAt != 0 && !client.listMine().contains(entry.getKey());
+                    if (ready && publish(entry.getKey(), session.course, now, first).getAccepted()) {
+                        session.updated = now; session.retryAt = 0;
+                        continue;
+                    }
+                } catch (RuntimeException error) { Log.w(TAG, "course activity update failed", error); }
+                session.retryAt = now + 15_000L;
             }
         }
         schedule();

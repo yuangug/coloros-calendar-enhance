@@ -77,13 +77,25 @@ final class CourseLiveDeviceChecks {
         }
         CourseLiveSettings.State state = CourseLiveSettings.read(app,data.calendarId);
         if(operation.equals("configure")) {
+            if(input.has("astra"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.ASTRA_ENABLED,input.getBoolean("astra"));
             if(input.has("enabled"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.ENABLED,input.getBoolean("enabled"));
             if(input.has("retain"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.RETAIN_ON_CLICK,input.getBoolean("retain"));
+            if(input.has("keepDuringCourse"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.KEEP_DURING_COURSE,input.getBoolean("keepDuringCourse"));
             if(input.has("auto"))CourseLiveSettings.setBoolean(app,data.calendarId,state.identity,CourseLiveSettings.AUTO_DND,input.getBoolean("auto"));
             if(input.has("minutes"))CourseLiveSettings.setRetention(app,data.calendarId,state.identity,input.getInt("minutes"));
             CourseLiveCoordinator.settingsChanged();return output.put("configured",true);
         }
         CourseOccurrence occurrence = CourseLiveCoordinator.find(id,0);
+        if(operation.equals("islandState")) {
+            if(occurrence==null) return output.put("loaded",false);
+            long sampledAt=System.currentTimeMillis();
+            return output.put("loaded",true).put("key",occurrence.key)
+                    .put("sampledAt",sampledAt).put("phase",occurrence.phase(sampledAt,state.retainMinutes,
+                            CourseLiveCoordinator.isDismissed(occurrence)).name())
+                    .put("shade",CourseLiveSeedlingState.hasNotification(occurrence))
+                    .put("sdkUntil",app.getSharedPreferences("lspx_course_live_instances_v1",0).getLong("astra:"+occurrence.key,0))
+                    .put("astraRouting",CourseLiveCoordinator.astraOwnsCapsule(occurrence));
+        }
         if(operation.equals("arm") || operation.equals("disarm")) {
             if (event == null || (operation.equals("arm") && occurrence == null))
                 throw new IllegalStateException("Test event or occurrence not loaded");
@@ -185,7 +197,7 @@ final class CourseLiveDeviceChecks {
         CourseOccurrence occurrence = new CourseOccurrence("test", "isolated", 99999, 99999,
                 start, end, start - 15 * 60000L, "隔离课程", "测试教室", "测试教师");
         CourseLiveSettings.State state = new CourseLiveSettings.State(99999, "isolated", true, true, true, true, false, 5,
-                false, CourseAstraStyle.TIMETABLE);
+                false, CourseAstraStyle.TIMETABLE, false);
         int icon = app.getResources().getIdentifier("ic_push", "drawable", app.getPackageName());
         Notification original = new Notification.Builder(app, "Calendar_course_channel_default").setSmallIcon(icon)
                 .setContentTitle("隔离课程").setContentText("原生内容").setAutoCancel(true).build();

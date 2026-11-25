@@ -51,10 +51,15 @@ final class CourseLiveCoordinator {
     private static final Map<String, Long> dismissed = new ConcurrentHashMap<>();
     private static final Map<String, Posted> posted = new LinkedHashMap<>(); // worker only
     private static final Map<String, NativeAction> nativeActions = new HashMap<>();
-    private static final Map<String, IslandPublication> islands = new HashMap<>(); // worker only
-    private static final java.util.Set<String> astraCapsules = ConcurrentHashMap.newKeySet();
-    private static final Runnable ISLAND_RETRY = CourseLiveCoordinator::refresh;
+    private static final Map<String, CourseIslandWindow.Delivery> islands = new HashMap<>(); // worker only
+    private static final java.util.Set<String> nativeFallback = ConcurrentHashMap.newKeySet();
+    private static final String ASTRA = "astra:", ASTRA_TAP = "astra-tap:";
+    private static final String ISLAND_OPEN = "io.github.yuangug.coursealarm.OPEN_COURSE_ISLAND";
     private static final Runnable CARD_TICK = CourseLiveCoordinator::refresh;
+    private static final String WINDOW_START = "window-start:";
+    private static final String WINDOW_SERVICE = "window-service:";
+    private static final CourseReminderWindow window = new CourseReminderWindow();
+    private static String accountName, accountType; // current validated table; worker only
     private static LocalDate loadedDate;
     private static long scheduledAt;
     private static int readFailures;
@@ -62,6 +67,7 @@ final class CourseLiveCoordinator {
     private static boolean recovering;
     private static JSONArray pendingDnd;
     private static int dndRetries;
+    private static long islandActionRevision; // worker only; read action state once per actual publication
     private static final Runnable RETRY_DND = () -> retryDnd();
     private static final List<SharedPreferences> preferenceOwners = new ArrayList<>();
     private static final SharedPreferences.OnSharedPreferenceChangeListener tableListener = (prefs, key) -> {
@@ -86,11 +92,6 @@ final class CourseLiveCoordinator {
     private static final class NativeAction {
         PendingIntent intent;
         boolean active;
-    }
-
-    private static final class IslandPublication {
-        String applied = "", pending = "";
-        int attempts;
     }
 
     static synchronized void init(Context context) {
@@ -123,7 +124,7 @@ final class CourseLiveCoordinator {
             BroadcastReceiver receiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
                     if (CourseDndClient.CHANGED.equals(intent.getAction())) {
-                        work.post(CourseLiveCoordinator::retryDnd); requestTick();
+                        work.post(() -> { islandActionRevision++; retryDnd(); requestTick(); });
                     } else settingsChanged();
                 }
             };
@@ -163,6 +164,23 @@ final class CourseLiveCoordinator {
         handler.removeCallbacks(REFRESH); handler.post(REFRESH);
     }
 
+    // A course reminder may be the event that starts Calendar. Resolve its real table
+    // before the native START, without reading the provider on the host's calling thread.
+    static boolean afterColdRead(Runnable send) {
+        if (loaded || work == null) return false;
+        long deadline = android.os.SystemClock.elapsedRealtime() + 1500;
+        work.post(new Runnable() {
+            @Override public void run() {
+                if (!loaded && HostTablePage.loadInFlight() && android.os.SystemClock.elapsedRealtime() < deadline) {
+                    work.postDelayed(this, 75); return;
+                }
+                try { if (!loaded) reload(true); }
+                finally { new Handler(android.os.Looper.getMainLooper()).post(send); }
+            }
+        });
+        return true;
+    }
+
     static void execute(Runnable action) {
         if (work == null) return;
         if (android.os.Looper.myLooper() == work.getLooper()) action.run(); else work.post(action);
@@ -183,6 +201,39 @@ final class CourseLiveCoordinator {
 
     static CourseOccurrence find(String key) { return occurrences.get(key); }
     static boolean isDismissed(CourseOccurrence item) { return item != null && dismissed.containsKey(item.key); }
+    static boolean keepVisible(CourseOccurrence item, long now) {
+        CourseLiveSettings.State state = settings(item);
+        return state != null && CourseReminderWindow.keep(item, now, state.keepDuringCourse, isDismissed(item));
+    }
+
+    static boolean beginWindowSend(CourseOccurrence item, boolean fallback) {
+        if (!window.trySend(item.key, android.os.SystemClock.elapsedRealtime())) return false;
+        if (fallback) journal.edit().putLong(WINDOW_START + item.key, System.currentTimeMillis()).apply();
+        return true;
+    }
+
+    static void nativeStart(CourseOccurrence item) {
+        if (item != null && journal.contains(WINDOW_START + item.key)) journal.edit().remove(WINDOW_START + item.key).apply();
+    }
+
+    static String windowService(CourseOccurrence item, String generated) {
+        if (generated == null || generated.isEmpty()) return generated;
+        String name = WINDOW_SERVICE + item.key, prefix = item.end + "/";
+        String previous = journal.getString(name, "");
+        String id = previous.startsWith(prefix) ? previous.substring(prefix.length()) : null;
+        if (id == null || id.isEmpty() || CourseLiveSeedlingState.isClosing(id))
+            id = CourseLiveSeedlingState.restorableService(item);
+        if (id == null) id = generated;
+        if (!previous.equals(prefix + id)) journal.edit().putString(name, prefix + id).apply();
+        return id;
+    }
+
+    /** Withdraw our catch-up publication if the reminder is moved later, disabled, or the experiment is disabled. */
+    static boolean windowWithdrawn(CourseOccurrence item, long now) {
+        CourseLiveSettings.State state = settings(item);
+        return state != null && journal.contains(WINDOW_START + item.key)
+                && !(state.keepDuringCourse && CourseReminderWindow.configured(item) && now >= item.reminderAt);
+    }
     static boolean suppressed(CourseOccurrence item) {
         CourseLiveSettings.State state = settings(item);
         return item != null && state != null && (isDismissed(item)
@@ -195,6 +246,7 @@ final class CourseLiveCoordinator {
     static Click handleClick(Intent intent, long eventId, long alarmTime) {
         if (eventId <= 0 || intent == null || intent.getIntExtra("view_type", 0) != 0 || journal == null) return null;
         boolean fluid = "android.intent.action.card.NOTIFICATION_FLUID_CARD".equals(intent.getAction());
+        boolean island = ISLAND_OPEN.equals(intent.getAction());
         CourseOccurrence fluidItem = fluid ? CourseLiveSeedlingState.captured(intent.getStringExtra("serviceInstanceId")) : null;
         long now = System.currentTimeMillis();
         for (Map.Entry<String, ?> entry : journal.getAll().entrySet()) {
@@ -203,7 +255,10 @@ final class CourseLiveCoordinator {
                 JSONObject receipt = new JSONObject((String) entry.getValue());
                 String key = entry.getKey().substring(6);
                 if (receipt.getLong("event") != eventId || receipt.getLong("expires") <= now
-                        || receipt.optLong("alarm", -1) != alarmTime || journal.contains("dismiss:" + key)) continue;
+                        || !island && receipt.optLong("alarm", -1) != alarmTime || journal.contains("dismiss:" + key)) continue;
+                if (island && (intent.getData() == null || !key.equals(intent.getData().getLastPathSegment())
+                        || !journal.contains(ASTRA_TAP + key) || !journal.getString(ASTRA_TAP + key, "")
+                        .equals(intent.getData().getQueryParameter("tap")))) continue;
                 if (fluid) { if (fluidItem == null || !fluidItem.key.equals(key)) continue; }
                 else if (!receipt.has("backend") || intent.getBooleanExtra("view_from_calendar", false)
                         != CalendarBackend.LOCAL.equals(receipt.getString("backend"))) continue;
@@ -217,7 +272,8 @@ final class CourseLiveCoordinator {
                     if (!key.equals(item.key)) continue;
                 }
                 if (item == null) item = fluidItem;
-                boolean retain = loaded ? state.retainOnClick : receipt.optBoolean("retain");
+                boolean retain = loaded ? state.retainOnClick || keepVisible(item, now) : receipt.optBoolean("retain")
+                        || now >= receipt.optLong("windowStart", Long.MAX_VALUE) && now < receipt.getLong("end");
                 if (!retain) dismissKey(key, receipt.getLong("end"));
                 return new Click(item, retain);
             } catch (Exception ignored) { }
@@ -233,7 +289,8 @@ final class CourseLiveCoordinator {
                 String value = new JSONObject().put("event", item.eventId).put("calendar", item.calendarId)
                         .put("backend", item.backend).put("identity", item.tableIdentity).put("alarm", alarmTime)
                         .put("start", item.start).put("end", item.end).put("expires", item.expiresAt(state.retainMinutes))
-                        .put("retain", state.retainOnClick).toString();
+                        .put("retain", state.retainOnClick).put("windowStart", state.keepDuringCourse
+                                && CourseReminderWindow.configured(item) ? item.reminderAt : Long.MAX_VALUE).toString();
                 journal.edit().putString("click:" + item.key, value).apply();
             } catch (Exception error) { Logx.e(CourseAlarmEntry.TAG, "live publication receipt", error); }
         });
@@ -251,7 +308,7 @@ final class CourseLiveCoordinator {
             if (!journal.edit().putLong("dismiss:" + key, end + 86400000L).commit())
                 Logx.w(CourseAlarmEntry.TAG, "live dismissal journal commit failed");
             CourseOccurrence item = find(key);
-            nativeNotificationEnded(key);
+            stopIsland(key);
             if (item != null) CourseLiveHooks.closeOccurrence(item);
             CourseLiveSeedlingState.closeKey(key);
             Posted old = posted.remove(key);
@@ -284,7 +341,7 @@ final class CourseLiveCoordinator {
                 posted.remove(item.key);
                 return;
             }
-            if (!state.enabled) return;
+            if (!state.enabled && !state.astraEnabled && !keepVisible(item, System.currentTimeMillis())) return;
             Posted previous = posted.get(item.key);
             Posted record = new Posted(item.key, TAG, (int) id, copy);
             if (previous != null) {
@@ -299,8 +356,24 @@ final class CourseLiveCoordinator {
     static Notification retainImmediately(Object info, Notification notification) {
         CourseOccurrence item = find(number(info, "getTargetId"), number(info, "getBeginTime"));
         CourseLiveSettings.State state = settings(item);
-        if (notification != null && state != null && state.retainOnClick) notification.flags &= ~Notification.FLAG_AUTO_CANCEL;
+        boolean windowActive = keepVisible(item, System.currentTimeMillis());
+        if (notification != null && state != null && (state.retainOnClick || windowActive))
+            notification.flags &= ~Notification.FLAG_AUTO_CANCEL;
+        if (notification != null && windowActive && (number(info, "getAlertFeatures") & 16) == 0)
+            retainNativeReminder(notification, item);
         return notification;
+    }
+
+    private static void retainNativeReminder(Notification notification, CourseOccurrence item) {
+        notification.flags &= ~Notification.FLAG_AUTO_CANCEL;
+        notification.extras.putLong("lspx.course.event", item.eventId);
+        notification.extras.putLong("lspx.course.start", item.start);
+        notification.extras.putString("lspx.course.instance", item.key);
+        if (!notification.extras.containsKey("lspx.live.nativeDelete")) {
+            PendingIntent original = notification.deleteIntent;
+            notification.deleteIntent = deleteAction(item, original);
+            notification.extras.putParcelable("lspx.live.nativeDelete", original);
+        }
     }
 
     static void receive(BroadcastReceiver receiver, Intent intent) {
@@ -317,6 +390,8 @@ final class CourseLiveCoordinator {
                     PendingIntent original = intent.getParcelableExtra("originalDelete");
                     if (original != null) try { original.send(); } catch (PendingIntent.CanceledException ignored) { }
                 } else {
+                    if (REVALIDATE.equals(intent.getAction()) && intent.getBooleanExtra("islandBoundary", false))
+                        islandActionRevision++; // Module alarm is live now; do not wait out an earlier IPC backoff.
                     if (REVALIDATE.equals(intent.getAction()) || DND_ENABLE.equals(intent.getAction())
                             || !loaded || !LocalDate.now().equals(loadedDate)) reload();
                     if (DND_ENABLE.equals(intent.getAction())) {
@@ -357,12 +432,50 @@ final class CourseLiveCoordinator {
     private static void retryDnd() {
         if (pendingDnd == null || !validated) return;
         work.removeCallbacks(RETRY_DND);
-        Bundle result = CourseDndClient.sync(app, pendingDnd, journal.getString("revalidateToken", null));
+        Bundle result = CourseDndClient.sync(app, pendingDnd, journal.getString("revalidateToken", null), islandDeadlines());
         if (result.getBoolean("success")) {
             pendingDnd = null; dndRetries = 0;
             for (Posted record : posted.values()) { record.dnd = null; record.last = ""; }
         }
         else if (++dndRetries < 3) work.postDelayed(RETRY_DND, 30000);
+    }
+
+    private static long[] islandDeadlines() {
+        var times = new java.util.TreeSet<Long>();
+        if (settings != null && settings.astraEnabled) {
+            // Even a day without lessons must roll the validated schedule forward.
+            times.add(LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli());
+            for (var item : occurrences.values())
+            if (CourseReminderWindow.configured(item) && !isDismissed(item)) {
+                times.add(item.reminderAt); times.add(item.start); times.add(item.end);
+                times.add(item.expiresAt(settings.retainMinutes));
+            }
+        }
+        return times.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    // Called on the same worker as publication. If a ROM allows a single provider start
+    // before reclaiming the process, the same call must enroll the next boundaries too.
+    static void attachIslandDeadlines(Bundle request) {
+        if (!validated || settings == null || !settings.astraEnabled) return;
+        request.putLongArray("islandDeadlines", islandDeadlines());
+        request.putString("validationToken", journal.getString("revalidateToken", null));
+    }
+
+    static void connectIsland(android.app.Activity activity, String identity) {
+        execute(() -> {
+            if (!validated || settings == null || !identity.equals(settings.identity) || !settings.astraEnabled) {
+                activity.runOnUiThread(() -> CurriculumIo.toast(activity, "课表已变更，请重新打开课表设置"));
+                return;
+            }
+            Intent connect = new Intent().setClassName(CourseDndClient.PACKAGE, CourseIslandSetupActivity.class.getName())
+                    .putExtra("token", journal.getString("revalidateToken", null)).putExtra("times", islandDeadlines());
+            activity.runOnUiThread(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                try { activity.startActivityForResult(connect, 0x4953); }
+                catch (RuntimeException error) { CurriculumIo.toast(activity, "无法打开模块的星河岛连接入口"); }
+            });
+        });
     }
 
     private static PendingIntent dndContinuation(CourseOccurrence item) {
@@ -432,9 +545,13 @@ final class CourseLiveCoordinator {
     }
 
     private static void reload() {
+        reload(false);
+    }
+
+    private static void reload(boolean nativeReminderWaiting) {
         long now = android.os.SystemClock.elapsedRealtime();
         if (now < nextReadAt) { cleanupDeadline(); return; }
-        if (HostTablePage.loadInFlight()) {
+        if (!nativeReminderWaiting && HostTablePage.loadInFlight()) {
             work.removeCallbacks(RELOAD); work.postDelayed(RELOAD, 500); return;
         }
         try {
@@ -457,11 +574,15 @@ final class CourseLiveCoordinator {
     }
 
     private static void cleanupDeadline() {
-        for (String key : new ArrayList<>(islands.keySet())) stopIsland(key);
-        work.removeCallbacks(ISLAND_RETRY);
         work.removeCallbacks(CARD_TICK);
         CourseLiveSeedlingState.cleanupOnly();
-        setAlarm(CourseLiveSeedlingState.nextExpiry());
+        long nativeExpiry = CourseLiveSeedlingState.nextExpiry(), next = Long.MAX_VALUE, now = System.currentTimeMillis();
+        for (var entry : journal.getAll().entrySet()) if (entry.getKey().startsWith(ASTRA) && entry.getValue() instanceof Long end) {
+            if (end <= now) stopIsland(entry.getKey().substring(ASTRA.length()));
+            else next = Math.min(next, end);
+        }
+        if (nativeExpiry > 0) next = Math.min(next, nativeExpiry);
+        setAlarm(next == Long.MAX_VALUE ? 0 : next);
     }
 
     private static void clear() {
@@ -493,7 +614,8 @@ final class CourseLiveCoordinator {
             if (course == null || course.startNode < 0 || course.endNode < course.startNode) continue;
             Object event = data.events.get(index);
             long eventId = number(event, "getId");
-            if (eventId <= 0) continue;
+            if (eventId <= 0 || number(event, "getEventStatus") == android.provider.CalendarContract.Events.STATUS_CANCELED) continue;
+            if (Ref.callName(event, "getExrule") instanceof String rule && !rule.isBlank()) continue;
             long eventStart = number(event, "getDtstart"), eventEnd = number(event, "getDtend");
             Object durationValue = Ref.callName(event, "getDuration");
             long duration = durationValue instanceof String ? CourseDuration.parseSeconds((String) durationValue) * 1000L : 0;
@@ -508,21 +630,38 @@ final class CourseLiveCoordinator {
             if (duration <= 0 && table != null && course.endNode < table.nodeCount())
                 duration = (table.periodEnd[course.endNode] - table.periodStart[course.startNode]) * 60000L;
             if (startTime == null || duration <= 0 || duration > 2L * 86400000L) continue;
-            for (int offset = -1; offset <= 2; offset++) {
-                LocalDate date = today.plusDays(offset);
+            java.time.ZoneOffset preferred = eventStart > 0 ? eventZone.getRules().getOffset(Instant.ofEpochMilli(eventStart)) : null;
+            java.util.Set<Long> excluded, starts;
+            try {
+                excluded = WeekFinishSchedule.dates((String) Ref.callName(event, "getExdate"), eventZone, startTime, preferred);
+                starts = new java.util.TreeSet<>(WeekFinishSchedule.dates((String) Ref.callName(event, "getRdate"), eventZone, startTime, preferred));
+            } catch (RuntimeException invalidDates) { continue; }
+            LocalDate eventToday = LocalDate.now(eventZone);
+            for (int offset = -2; offset <= 2; offset++) {
+                LocalDate date = eventToday.plusDays(offset);
                 long days = ChronoUnit.DAYS.between(monday, date);
                 int week = (int) Math.floorDiv(days, 7) + 1;
                 if (date.isBefore(termDate) || week < 1 || week > weekCount
                         || !course.weeks.get(week) || date.getDayOfWeek().getValue() - 1 != course.day) continue;
-                long start = date.atTime(startTime).atZone(eventZone).toInstant().toEpochMilli();
+                long start = java.time.ZonedDateTime.ofLocal(date.atTime(startTime), eventZone, preferred).toInstant().toEpochMilli();
+                if (eventStart <= start) starts.add(start);
+            }
+            for (long start : starts) {
+                LocalDate date = Instant.ofEpochMilli(start).atZone(eventZone).toLocalDate();
+                if (date.isBefore(eventToday.minusDays(2)) || date.isAfter(eventToday.plusDays(2))
+                        || date.isBefore(termDate) || !date.isBefore(monday.plusWeeks(weekCount)) || excluded.contains(start)) continue;
                 long end = start + duration;
-                if (eventStart > start || excluded(event, start, eventZone)) continue;
                 CourseOccurrence item = new CourseOccurrence(data.backendAuthority, current.identity, data.calendarId,
                         eventId, start, end, start - (hasReminder ? reminderMinutes * 60000L : 0),
-                        course.name, course.room, course.teacher);
+                        course.name, course.room, course.teacher, eventZone.getId(),
+                        current.astraEnabled && current.showProgress && table != null
+                                ? CourseBreaks.fromTable(start, end, eventZone, course.startNode, course.endNode, table.periodStart, table.periodEnd)
+                                : CourseBreaks.NONE);
                 next.put(item.key, item);
             }
         }
+        accountName = (String) Ref.callName(data.calendar, "getAccountName");
+        accountType = (String) Ref.callName(data.calendar, "getAccountType");
         settings = current; occurrences = Collections.unmodifiableMap(next); loaded = true; validated = true; loadedDate = today;
         readFailures = 0; nextReadAt = 0;
         nativeActions.clear();
@@ -544,6 +683,12 @@ final class CourseLiveCoordinator {
             for (StatusBarNotification active : manager().getActiveNotifications()) {
                 Notification notification = active.getNotification();
                 String key = notification.extras.getString(KEY);
+                if (key == null && TAG.equals(active.getTag())) {
+                    CourseOccurrence item = find(notification.extras.getLong("lspx.course.event", -1),
+                            notification.extras.getLong("lspx.course.start", -1));
+                    if (item != null && item.key.equals(notification.extras.getString("lspx.course.instance"))
+                            && active.getId() == (int) item.eventId) key = item.key;
+                }
                 if (key != null && !posted.containsKey(key))
                     posted.put(key, new Posted(key, active.getTag(), active.getId(), notification));
             }
@@ -567,16 +712,26 @@ final class CourseLiveCoordinator {
                 cancelIfOwned(record); posted.remove(record.key); continue;
             }
             if (state == null || !state.enabled) {
-                Notification ordinary = restore(record.original);
-                if (state != null && state.retainOnClick) ordinary.flags &= ~Notification.FLAG_AUTO_CANCEL;
-                manager().notify(record.tag, record.id, ordinary); posted.remove(record.key); continue;
+                // A native reminder can arrive before the Seedling subscription. Track it for deduplication
+                // without replacing it on every tick, even when neither visual enhancement is enabled.
+                boolean keeping = keepVisible(item, now);
+                if (!record.last.isEmpty() || record.original.extras.containsKey(KEY)
+                        || keeping && !record.original.extras.containsKey("lspx.live.nativeDelete")) {
+                    Notification ordinary = restore(record.original);
+                    if (keeping) retainNativeReminder(ordinary, item);
+                    else if (state != null && state.retainOnClick) ordinary.flags &= ~Notification.FLAG_AUTO_CANCEL;
+                    manager().notify(record.tag, record.id, ordinary);
+                    record.original = ordinary; record.last = "";
+                }
+                if (state == null || !state.astraEnabled && !state.keepDuringCourse) posted.remove(record.key);
+                continue;
             }
             try {
                 Bundle status = state.showDndButton && now < item.end ? CourseDndClient.status(app, item.key) : Bundle.EMPTY;
                 boolean active = status.getBoolean("sessionActive");
                 record.otherDnd = status.getBoolean("systemActive") && !status.getBoolean("ownedActive");
                 String fingerprint = item.timing(now) + ":" + state.showProgress + ":" + state.showDndButton
-                        + ":" + state.retainOnClick + ":" + active + ":" + state.retainMinutes
+                        + ":" + (state.retainOnClick || keepVisible(item, now)) + ":" + active + ":" + state.retainMinutes
                         + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end + ":" + record.otherDnd;
                 if (fingerprint.equals(record.last)) continue;
                 if (state.showDndButton && now < item.end
@@ -589,7 +744,8 @@ final class CourseLiveCoordinator {
                 rememberClick(item, record.original.extras.getLong("lspx.course.alarm", item.reminderAt));
             } catch (RuntimeException error) { Logx.e(CourseAlarmEntry.TAG, "live notification update", error); }
         }
-        refreshIslands(now);
+        long windowWake = reconcileWindow(now);
+        windowWake = Math.min(windowWake, refreshIslands(now));
         CourseLiveHooks.refreshSeedling();
         CourseNativeCardBridge.changed(app);
         SharedPreferences.Editor prune = null;
@@ -599,90 +755,131 @@ final class CourseLiveCoordinator {
             prune.remove("dismiss:" + entry.getKey());
         }
         if (prune != null) prune.apply();
-        schedule(now);
+        schedule(now, windowWake);
     }
 
-    static boolean astraOwnsCapsule(CourseOccurrence item) { return astraCapsules.contains(item.key); }
+    private static long reconcileWindow(long now) {
+        long next = Long.MAX_VALUE, elapsed = android.os.SystemClock.elapsedRealtime();
+        java.util.Set<String> active = new java.util.HashSet<>();
+        if (settings != null && settings.keepDuringCourse) for (CourseOccurrence item : occurrences.values()) {
+            if (isDismissed(item)) continue;
+            next = Math.min(next, CourseReminderWindow.nextBoundary(item, now));
+            if (!CourseReminderWindow.active(item, now)) continue;
+            active.add(item.key);
+            if (CourseLiveHooks.hasWindowCard(item)) continue;
+            // A cold start can occur between dispatch and the asynchronous subscription.
+            long sentAt = journal.getLong(WINDOW_START + item.key, 0);
+            if (sentAt > 0 && now >= sentAt && now - sentAt < CourseReminderWindow.DELIVERY_GRACE) {
+                next = Math.min(next, sentAt + CourseReminderWindow.DELIVERY_GRACE); continue;
+            }
+            if (window.tryCheck(item.key, elapsed)) CourseLiveHooks.requestWindowCard(app, item, accountName, accountType);
+            next = Math.min(next, now + Math.max(1, window.nextAttempt(item.key) - elapsed));
+        }
+        window.retain(active);
+        return next;
+    }
+
+    static boolean astraOwnsCapsule(CourseOccurrence item) {
+        CourseLiveSettings.State state = settings(item);
+        return state != null && state.astraEnabled && CourseSeedlingRouting.available && !nativeFallback.contains(item.key);
+    }
+
+    // Only an explicit dismissal ends this lesson. An unsubscribe is also sent when a
+    // StatusBar host is hidden or Calendar retires its notification at a phase boundary.
+    static boolean independentIsland(String key) {
+        return independentIsland(key, false);
+    }
+
+    static boolean independentIsland(String key, boolean atSubscription) {
+        CourseLiveSettings.State state = settings(find(key));
+        return state != null ? state.astraEnabled && CourseSeedlingRouting.available
+                : atSubscription || journal != null && journal.contains(ASTRA + key);
+    }
 
     private static void stopIsland(String key) {
-        nativeNotificationEnded(key);
-    }
-
-    static void nativeNotificationEnded(String key) {
-        // A real native END also applies after Calendar has restarted and lost its in-memory receipt.
-        boolean routed = astraCapsules.remove(key);
-        islands.remove(key);
-        String receipt = "astra:" + key;
-        if (routed || journal.contains(receipt)) {
+        nativeFallback.remove(key);
+        boolean attempted = islands.remove(key) != null;
+        if (attempted || journal.contains(ASTRA + key)) {
             CourseAstraIsland.end(app, key);
-            journal.edit().remove(receipt).apply();
+            journal.edit().remove(ASTRA + key).remove(ASTRA_TAP + key).apply();
             CourseOccurrence item = find(key);
             if (item != null) CourseLiveCapabilities.reportAstra(app, item, "ended");
         }
     }
 
-    private static void refreshIslands(long now) {
-        Map<String, CourseLiveSeedlingState.NotificationReceipt> eligible = new LinkedHashMap<>();
-        if (CourseSeedlingRouting.available) for (var receipt : CourseLiveSeedlingState.notificationReceipts()) {
-            CourseOccurrence item = find(receipt.key());
+    private static long refreshIslands(long now) {
+        var receipts = new java.util.HashSet<String>();
+        for (var r : CourseLiveSeedlingState.notificationReceipts()) receipts.add(r.key());
+        var eligible = new java.util.HashSet<String>();
+        long next = Long.MAX_VALUE;
+        boolean allowed = settings != null && settings.astraEnabled && CourseSeedlingRouting.available
+                && CourseWindowPublisher.notificationsAllowed(app);
+        for (CourseOccurrence item : occurrences.values()) {
             CourseLiveSettings.State state = settings(item);
-            if (state != null && state.astraEnabled && !suppressed(item))
-                eligible.putIfAbsent(item.key, receipt);
-        }
-        for (String key : new ArrayList<>(islands.keySet())) if (!eligible.containsKey(key)) stopIsland(key);
-        boolean retry = false;
-        for (var receipt : eligible.values()) {
-            CourseOccurrence item = find(receipt.key());
-            CourseLiveSettings.State state = settings(item);
-            Bundle action = astraCardState(item, receipt.service());
-            boolean dndActive = action.getBoolean("dndActive");
-            String fingerprint = receipt.service() + ":" + state.showProgress + ":" + state.astraStyle.id
-                    + ":" + state.showDndButton + ":" + dndActive + ":" + state.retainMinutes
-                    + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.end;
-            IslandPublication publication = islands.computeIfAbsent(item.key, ignored -> new IslandPublication());
-            if (fingerprint.equals(publication.applied)) continue;
-            if (!fingerprint.equals(publication.pending)) { publication.pending = fingerprint; publication.attempts = 0; }
-            if (publication.attempts >= 4) continue;
-            Intent open = new Intent("android.intent.action.card.NOTIFICATION_FLUID_CARD")
-                    .setClassName(app, "com.android.calendar.oppo.alerts.OppoAlertActivity")
-                    .setData(Uri.parse("coursealarm://activity/" + Uri.encode(item.key)))
-                    .putExtra("event_id", Long.toString(item.eventId)).putExtra("alarm_time", Long.toString(receipt.alarm()))
-                    .putExtra("serviceInstanceId", receipt.service())
-                    .putExtra("view_from_calendar", CalendarBackend.LOCAL.equals(item.backend));
-            Intent dismiss = new Intent(DISMISS).setClassName(app, RECEIVER)
-                    .setData(Uri.parse("coursealarm://dismiss/" + Uri.encode(item.key)))
-                    .putExtra(KEY, item.key).putExtra(END, item.end);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-            String result = CourseAstraIsland.publish(app, item, state, PendingIntent.getActivity(app, 0, open, flags),
-                    PendingIntent.getBroadcast(app, 0, dismiss, flags), action.getParcelable("dndAction"), dndActive);
-            if (CourseAstraIsland.ACCEPTED.equals(result)) {
-                publication.applied = fingerprint;
-                astraCapsules.add(item.key);
-                journal.edit().putLong("astra:" + item.key, item.expiresAt(state.retainMinutes)).apply();
-                CourseLiveCapabilities.reportAstra(app, item, "active");
-            } else if (CourseAstraIsland.CONNECTING.equals(result) && ++publication.attempts < 4) {
-                CourseLiveCapabilities.reportAstra(app, item, "connecting");
-                retry = true;
-            } else {
-                CourseLiveCapabilities.reportAstra(app, item, "unavailable");
-                // Restore the original capsule only after the SDK activity has been ended.
-                if (astraCapsules.remove(item.key)) {
-                    CourseAstraIsland.end(app, item.key);
-                    journal.edit().remove("astra:" + item.key).apply();
+            if (!allowed || state == null || isDismissed(item)) continue;
+            if (CourseReminderWindow.configured(item) && now < item.reminderAt) next = Math.min(next, item.reminderAt);
+            if (!CourseIslandWindow.eligible(item, now, state.retainMinutes, receipts.contains(item.key), false)) continue;
+            eligible.add(item.key);
+            long expires = item.expiresAt(state.retainMinutes);
+            next = Math.min(next, expires);
+            if (now < item.start) next = Math.min(next, item.start);
+            if (now < item.end) next = Math.min(next, item.end);
+            String fingerprint = item.phase(now, state.retainMinutes, false) + ":" + state.showProgress + ":" + state.astraStyle.id
+                    + ":" + state.showDndButton + ":" + islandActionRevision + ":" + state.retainMinutes
+                    + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.end + ":" + item.breaks.gaps();
+            var publication = islands.computeIfAbsent(item.key, ignored -> new CourseIslandWindow.Delivery());
+            long elapsed = android.os.SystemClock.elapsedRealtime();
+            if (publication.due(fingerprint, elapsed)) {
+                Bundle action = astraCardState(item, "");
+                boolean dndActive = action.getBoolean("dndActive");
+                String tap = journal.getString(ASTRA_TAP + item.key, null);
+                if (tap == null) {
+                    tap = java.util.UUID.randomUUID().toString();
+                    journal.edit().putString(ASTRA_TAP + item.key, tap).apply();
                 }
-                publication.applied = "";
-                publication.attempts = 4;
+                if (!journal.contains("click:" + item.key)) rememberClick(item);
+                Intent open = new Intent(ISLAND_OPEN)
+                        .setClassName(app, "com.android.calendar.oppo.alerts.OppoAlertActivity")
+                        .setData(new Uri.Builder().scheme("coursealarm").authority("activity").appendPath(item.key)
+                                .appendQueryParameter("tap", tap).build())
+                        .putExtra("target_id", item.eventId).putExtra("alarm_time", item.reminderAt)
+                        .putExtra("view_from_calendar", CalendarBackend.LOCAL.equals(item.backend));
+                Intent dismiss = new Intent(DISMISS).setClassName(app, RECEIVER)
+                        .setData(Uri.parse("coursealarm://island-dismiss/" + Uri.encode(item.key)))
+                        .putExtra(KEY, item.key).putExtra(END, item.end);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+                String result = CourseAstraIsland.publish(app, item, state, PendingIntent.getActivity(app, 0, open, flags),
+                        PendingIntent.getBroadcast(app, 0, dismiss, flags), action.getParcelable("dndAction"), dndActive);
+                if (CourseAstraIsland.ACCEPTED.equals(result)) {
+                    if (pendingDnd != null) retryDnd();
+                    publication.accepted(elapsed);
+                    nativeFallback.remove(item.key);
+                    if (journal.getLong(ASTRA + item.key, 0) != expires) journal.edit().putLong(ASTRA + item.key, expires).apply();
+                    CourseLiveCapabilities.reportAstra(app, item, "active");
+                } else if (CourseAstraIsland.DISMISSED.equals(result)) {
+                    work.post(() -> dismiss(item));
+                    continue;
+                } else {
+                    boolean missing = CourseAstraIsland.MISSING.equals(result);
+                    boolean unavailable = missing || CourseAstraIsland.UNAVAILABLE.equals(result);
+                    if (missing) nativeFallback.add(item.key); else nativeFallback.remove(item.key);
+                    publication.failed(elapsed, unavailable);
+                    CourseLiveCapabilities.reportAstra(app, item, missing ? "missing" : unavailable ? "unavailable" : "connecting");
+                }
             }
+            next = Math.min(next, now + Math.max(1, publication.next() - elapsed));
         }
-        work.removeCallbacks(ISLAND_RETRY);
-        if (retry) work.postDelayed(ISLAND_RETRY, 1200);
+        var previous = new java.util.HashSet<>(islands.keySet());
+        for (String key : journal.getAll().keySet()) if (key.startsWith(ASTRA)) previous.add(key.substring(ASTRA.length()));
+        for (String key : previous) if (!eligible.contains(key)) stopIsland(key);
+        return next;
     }
 
     private static Notification decorate(Posted record, CourseOccurrence item, CourseLiveSettings.State state,
                                          boolean dndActive, long now) {
         Notification original = record.original;
         Notification.Builder builder = Notification.Builder.recoverBuilder(app, original);
-        builder.setAutoCancel(!state.retainOnClick).setOnlyAlertOnce(true)
+        builder.setAutoCancel(!(state.retainOnClick || keepVisible(item, now))).setOnlyAlertOnce(true)
                 .setTimeoutAfter(Math.max(1, item.expiresAt(state.retainMinutes) - now));
         builder.setContentTitle(item.title).setContentText(item.timing(now));
         String details = android.text.format.DateFormat.format("HH:mm", item.start) + "–"
@@ -701,12 +898,9 @@ final class CourseLiveCoordinator {
                     dndActive ? "结束本次免打扰" : "开启免打扰", record.dnd).addExtras(extras).build());
         }
         builder.setActions(actions.toArray(new Notification.Action[0]));
-        Intent delete = new Intent(DISMISS).setClassName(app, RECEIVER)
-                .setData(Uri.parse("coursealarm://dismiss/" + Uri.encode(item.key))).putExtra(KEY, item.key).putExtra(END, item.end);
         PendingIntent nativeDelete = original.extras.getParcelable("lspx.live.nativeDelete");
-        if (nativeDelete == null && original.extras.getString(KEY) == null) nativeDelete = original.deleteIntent;
-        if (nativeDelete != null) delete.putExtra("originalDelete", nativeDelete);
-        builder.setDeleteIntent(PendingIntent.getBroadcast(app, 0, delete, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        if (!original.extras.containsKey("lspx.live.nativeDelete") && original.extras.getString(KEY) == null) nativeDelete = original.deleteIntent;
+        builder.setDeleteIntent(deleteAction(item, nativeDelete));
         Bundle extras = new Bundle(); extras.putString(KEY, item.key); extras.putLong(START, item.start); extras.putLong(END, item.end);
         extras.putLong("lspx.live.expires", item.expiresAt(state.retainMinutes));
         extras.putParcelable("lspx.live.nativeDelete", nativeDelete);
@@ -714,6 +908,13 @@ final class CourseLiveCoordinator {
                 ? original.extras.getCharSequence("lspx.live.baseText") : original.extras.getCharSequence(Notification.EXTRA_TEXT));
         builder.addExtras(extras);
         return builder.build();
+    }
+
+    private static PendingIntent deleteAction(CourseOccurrence item, PendingIntent original) {
+        Intent delete = new Intent(DISMISS).setClassName(app, RECEIVER)
+                .setData(Uri.parse("coursealarm://dismiss/" + Uri.encode(item.key))).putExtra(KEY, item.key).putExtra(END, item.end);
+        if (original != null) delete.putExtra("originalDelete", original);
+        return PendingIntent.getBroadcast(app, 0, delete, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private static Notification restore(Notification original) {
@@ -759,7 +960,7 @@ final class CourseLiveCoordinator {
         return token != null && token.equals(current.extras.getString("lspx.course.publication"));
     }
 
-    private static void schedule(long now) {
+    private static void schedule(long now, long windowWake) {
         long next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
         long nextCard = Long.MAX_VALUE;
         for (CourseOccurrence item : occurrences.values()) {
@@ -767,6 +968,7 @@ final class CourseLiveCoordinator {
             if (item.start > now) next = Math.min(next, item.start);
             if (item.end > now) next = Math.min(next, item.end);
             if (item.expiresAt(state.retainMinutes) > now && CourseLiveHooks.hasCard(item)) {
+                next = Math.min(next, item.expiresAt(state.retainMinutes));
                 long boundary = Math.min(item.expiresAt(state.retainMinutes), now + 60000L - now % 60000L);
                 if (item.start > now) boundary = Math.min(boundary, item.start);
                 if (item.end > now) boundary = Math.min(boundary, item.end);
@@ -776,11 +978,14 @@ final class CourseLiveCoordinator {
                 next = Math.min(next, item.expiresAt(state.retainMinutes));
         }
         work.removeCallbacks(CARD_TICK);
-        if (settings == null || !settings.enabled) next = 0;
-        else if (nextCard != Long.MAX_VALUE) {
-            // Update active cards while Calendar is awake, even when the OS batches the alarm.
-            work.postDelayed(CARD_TICK, Math.max(1L, nextCard - System.currentTimeMillis()));
-            next = Math.min(next, nextCard);
+        if (settings == null || !(settings.enabled || settings.astraEnabled || settings.keepDuringCourse)) next = 0;
+        else {
+            next = Math.min(next, windowWake);
+            nextCard = Math.min(nextCard, windowWake);
+            if (nextCard != Long.MAX_VALUE) {
+                // The in-process deadline also covers a reminder while the OS batches the alarm.
+                work.postDelayed(CARD_TICK, Math.max(1L, nextCard - System.currentTimeMillis()));
+            }
         }
         setAlarm(next);
     }
@@ -799,24 +1004,12 @@ final class CourseLiveCoordinator {
     static long number(Object object, String getter) {
         Object value = Ref.callName(object, getter); return value instanceof Number ? ((Number) value).longValue() : -1;
     }
-    private static boolean excluded(Object event, long start, ZoneId zone) {
-        Object raw = Ref.callName(event, "getExdate");
-        if (!(raw instanceof String) || ((String) raw).isEmpty()) return false;
-        for (String text : ((String) raw).split(",")) {
-            try {
-                java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss");
-                String value = text.trim();
-                long at = java.time.LocalDateTime.parse(value.endsWith("Z") ? value.substring(0, value.length() - 1) : value,
-                        formatter).atZone(value.endsWith("Z") ? ZoneId.of("UTC") : zone).toInstant().toEpochMilli();
-                if (at == start) return true;
-            } catch (RuntimeException invalid) { return true; } // Do not invent an occurrence from malformed exclusions.
-        }
-        return false;
-    }
-
     private static void pruneReceipts(Map<String, CourseOccurrence> valid) {
         SharedPreferences.Editor edit = journal.edit(); long now = System.currentTimeMillis();
-        for (String name : journal.getAll().keySet()) if (name.startsWith("click:")) {
+        for (String name : journal.getAll().keySet()) if (name.startsWith(WINDOW_START) || name.startsWith(WINDOW_SERVICE)) {
+            CourseOccurrence item = valid.get(name.substring(name.indexOf(':') + 1));
+            if (item == null || now >= item.expiresAt(10)) edit.remove(name);
+        } else if (name.startsWith("click:")) {
             CourseOccurrence item = valid.get(name.substring(6));
             CourseLiveSettings.State state = settings(item);
             if (state == null || now >= item.expiresAt(state.retainMinutes)) edit.remove(name);

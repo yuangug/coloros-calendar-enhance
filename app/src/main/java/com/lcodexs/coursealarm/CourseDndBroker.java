@@ -193,6 +193,7 @@ final class CourseDndBroker {
                 .putLong("validationBoundary", CourseDndValidation.nextBoundary(next, now));
         if (validationToken != null) validated.putString("validationToken", validationToken);
         commit(validated);
+        CourseIslandWake.replace(context, request.getLongArray("islandDeadlines"), validationToken);
         initializedInProcess = true;
         try { reconcileLocked(context, false); }
         catch (RuntimeException error) { retry(context); throw error; }

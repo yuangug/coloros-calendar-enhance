@@ -36,9 +36,13 @@ public final class CourseDndClient {
 
     /** The private token authenticates later module -> calendar validation wake-ups. */
     public static Bundle sync(Context context, JSONArray occurrences, String validationToken) {
+        return sync(context, occurrences, validationToken, null);
+    }
+    static Bundle sync(Context context, JSONArray occurrences, String validationToken, long[] islandDeadlines) {
         Bundle request = new Bundle();
         request.putString("occurrences", occurrences.toString());
         if (validationToken != null) request.putString("validationToken", validationToken);
+        if (islandDeadlines != null) request.putLongArray("islandDeadlines", islandDeadlines);
         return call(context, "sync", request);
     }
 

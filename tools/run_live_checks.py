@@ -16,7 +16,9 @@ def main():
     test = root / "tools/livecheck/CourseOccurrenceCheck.java"
     with tempfile.TemporaryDirectory(prefix="coursealarm-live-check-") as output:
         subprocess.run([str(javac), "-encoding", "UTF-8", "-d", output,
-                        str(production / "CourseOccurrence.java"), str(production / "CourseAstraStyle.java"),
+                        str(production / "CourseOccurrence.java"), str(production / "CourseBreaks.java"), str(production / "CourseAstraStyle.java"),
+                        str(production / "CourseReminderWindow.java"),
+                        str(production / "CourseIslandWindow.java"),
                         str(test)], check=True)
         subprocess.run([str(java), "-cp", output, "com.lcodexs.coursealarm.CourseOccurrenceCheck"], check=True)
 

@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 final class CourseLiveSettings {
     static final String ENABLED = "enabled";
     static final String RETAIN_ON_CLICK = "retain_on_click";
+    static final String KEEP_DURING_COURSE = "keep_during_course";
     static final String SHOW_PROGRESS = "show_progress";
     static final String SHOW_DND_BUTTON = "show_dnd_button";
     static final String AUTO_DND = "auto_dnd";
@@ -19,18 +20,19 @@ final class CourseLiveSettings {
     private static final String ASTRA_MIGRATED = "astra_migrated_v1";
     private static final String SHOW_EXPERIMENTS = "show_course_live_experiments";
     private static final String[] FIELDS = { ENABLED, RETAIN_ON_CLICK, SHOW_PROGRESS,
-            SHOW_DND_BUTTON, AUTO_DND, RETAIN_MINUTES, ASTRA_ENABLED, ASTRA_STYLE, IMPLEMENTATION, ASTRA_MIGRATED };
+            SHOW_DND_BUTTON, AUTO_DND, RETAIN_MINUTES, ASTRA_ENABLED, ASTRA_STYLE, IMPLEMENTATION, ASTRA_MIGRATED,
+            KEEP_DURING_COURSE };
 
     static final class State {
         final long calendarId;
         final String identity;
-        final boolean enabled, retainOnClick, showProgress, showDndButton, autoDnd, astraEnabled;
+        final boolean enabled, retainOnClick, showProgress, showDndButton, autoDnd, astraEnabled, keepDuringCourse;
         final int retainMinutes;
         final CourseAstraStyle astraStyle;
 
         State(long calendarId, String identity, boolean enabled, boolean retainOnClick,
               boolean showProgress, boolean showDndButton, boolean autoDnd, int retainMinutes,
-              boolean astraEnabled, CourseAstraStyle astraStyle) {
+              boolean astraEnabled, CourseAstraStyle astraStyle, boolean keepDuringCourse) {
             this.calendarId = calendarId;
             this.identity = identity;
             this.enabled = enabled;
@@ -40,6 +42,7 @@ final class CourseLiveSettings {
             this.autoDnd = autoDnd;
             this.astraEnabled = astraEnabled;
             this.astraStyle = astraStyle;
+            this.keepDuringCourse = keepDuringCourse;
             this.retainMinutes = validRetention(retainMinutes) ? retainMinutes : 5;
         }
 
@@ -47,6 +50,7 @@ final class CourseLiveSettings {
             return switch (field) {
                 case ENABLED -> enabled;
                 case RETAIN_ON_CLICK -> retainOnClick;
+                case KEEP_DURING_COURSE -> keepDuringCourse;
                 case SHOW_PROGRESS -> showProgress;
                 case SHOW_DND_BUTTON -> showDndButton;
                 case AUTO_DND -> autoDnd;
@@ -76,7 +80,7 @@ final class CourseLiveSettings {
                 bool(prefs, id, ENABLED, false), bool(prefs, id, RETAIN_ON_CLICK, true),
                 bool(prefs, id, SHOW_PROGRESS, true), bool(prefs, id, SHOW_DND_BUTTON, true),
                 bool(prefs, id, AUTO_DND, false), retention(prefs, id),
-                bool(prefs, id, ASTRA_ENABLED, false), astraStyle(prefs, id));
+                bool(prefs, id, ASTRA_ENABLED, false), astraStyle(prefs, id), bool(prefs, id, KEEP_DURING_COURSE, false));
     }
 
     static boolean showExperiments(Context context) {
@@ -92,7 +96,8 @@ final class CourseLiveSettings {
     static State setBoolean(Context context, long calendarId, String expectedIdentity,
                             String field, boolean value) throws Exception {
         if (!ENABLED.equals(field) && !RETAIN_ON_CLICK.equals(field) && !SHOW_PROGRESS.equals(field)
-                && !SHOW_DND_BUTTON.equals(field) && !AUTO_DND.equals(field) && !ASTRA_ENABLED.equals(field))
+                && !SHOW_DND_BUTTON.equals(field) && !AUTO_DND.equals(field) && !ASTRA_ENABLED.equals(field)
+                && !KEEP_DURING_COURSE.equals(field))
             throw new IllegalArgumentException("未知的课程实时活动设置");
         TableSettings.State table = requireIdentity(context, calendarId, expectedIdentity);
         SharedPreferences prefs = TableSettings.preferences(context);

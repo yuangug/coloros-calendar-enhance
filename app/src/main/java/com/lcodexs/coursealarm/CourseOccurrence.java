@@ -3,11 +3,23 @@ package com.lcodexs.coursealarm;
 /** One real occurrence, independent of the week currently displayed by the timetable. */
 final class CourseOccurrence {
     enum Phase { UPCOMING, RUNNING, ENDED, EXPIRED, DISMISSED }
-    final String backend, tableIdentity, key, title, room, teacher;
+    final String backend, tableIdentity, key, title, room, teacher, zone;
     final long calendarId, eventId, start, end, reminderAt;
+    final CourseBreaks breaks;
 
     CourseOccurrence(String backend, String tableIdentity, long calendarId, long eventId,
                      long start, long end, long reminderAt, String title, String room, String teacher) {
+        this(backend, tableIdentity, calendarId, eventId, start, end, reminderAt, title, room, teacher,
+                java.time.ZoneId.systemDefault().getId());
+    }
+
+    CourseOccurrence(String backend, String tableIdentity, long calendarId, long eventId,
+                     long start, long end, long reminderAt, String title, String room, String teacher, String zone) {
+        this(backend, tableIdentity, calendarId, eventId, start, end, reminderAt, title, room, teacher, zone, CourseBreaks.NONE);
+    }
+
+    CourseOccurrence(String backend, String tableIdentity, long calendarId, long eventId,
+                     long start, long end, long reminderAt, String title, String room, String teacher, String zone, CourseBreaks breaks) {
         if (backend == null || tableIdentity == null || calendarId <= 0 || eventId <= 0
                 || start <= 0 || end <= start || end - start > 2L * 86400000L)
             throw new IllegalArgumentException("无效的课程实例");
@@ -16,6 +28,8 @@ final class CourseOccurrence {
         this.start = start; this.end = end; this.reminderAt = reminderAt;
         this.title = title == null ? "" : title; this.room = room == null ? "" : room;
         this.teacher = teacher == null ? "" : teacher;
+        this.zone = zone;
+        this.breaks = breaks;
         key = backend + ":" + tableIdentity + ":" + eventId + ":" + start;
     }
 

@@ -58,7 +58,7 @@ final class WeekFinishSchedule {
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmss")
             .withResolverStyle(java.time.format.ResolverStyle.STRICT);
-    private static Set<Long> dates(String raw, ZoneId zone, LocalTime clock, ZoneOffset preferred) {
+    static Set<Long> dates(String raw, ZoneId zone, LocalTime clock, ZoneOffset preferred) {
         if (raw == null || raw.trim().isEmpty()) return java.util.Collections.emptySet();
         Set<Long> result = new HashSet<>();
         // CalendarProvider also accepts a timezone identifier followed by a semicolon.

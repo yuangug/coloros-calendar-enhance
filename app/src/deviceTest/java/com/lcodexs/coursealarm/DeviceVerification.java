@@ -35,14 +35,40 @@ public final class DeviceVerification {
         if (Build.VERSION.SDK_INT >= 28 && !context.getPackageName().equals(android.app.Application.getProcessName())) return;
         app=context;
         TableLoadProbe.traceColdStart(context, module);
+        Class<?> alert=Class.forName("com.android.calendar.alerts.AlertReceiver",false,app.getClassLoader());
+        module.hook(Ref.methodOf(alert,"onReceive",Context.class,Intent.class)).setId("course_fixture_wake").intercept(chain->{
+            Intent intent=(Intent)chain.getArg(1);
+            if(intent==null || !"io.github.yuangug.coursealarm.VERIFICATION_WAKE".equals(intent.getAction()))return chain.proceed();
+            // The local file is still required; intent extras are never accepted as commands.
+            BroadcastReceiver.PendingResult result=((BroadcastReceiver)chain.getThisObject()).goAsync();
+            pollCommand();
+            if(result!=null)UI.postDelayed(result::finish,1800);
+            return null;
+        });
         UI.postDelayed(new Runnable(){public void run(){
-        File command=new File(app.getFilesDir(),"coursealarm-test-command.json");
-        if(command.exists())try{JSONObject input=new JSONObject(new String(java.nio.file.Files.readAllBytes(command.toPath()),StandardCharsets.UTF_8));command.delete();DeviceVerification.run(input);}catch(Throwable e){reply(null,e);}
+        pollCommand();
         UI.postDelayed(this,350);
     }},1000);}
+    private static void pollCommand() {
+        File command=new File(app.getFilesDir(),"coursealarm-test-command.json");
+        if(command.exists())try{JSONObject input=new JSONObject(new String(java.nio.file.Files.readAllBytes(command.toPath()),StandardCharsets.UTF_8));if(command.delete())run(input);}catch(Throwable e){reply(null,e);}
+    }
     static Activity activity()throws Exception{java.lang.reflect.Field field=UndoBar.class.getDeclaredField("resumed");field.setAccessible(true);Activity a=(Activity)((WeakReference<?>)field.get(null)).get();if(a==null)throw new IllegalStateException("No resumed Activity");return a;}
     static void run(JSONObject input)throws Exception{
         String op=input.getString("op");
+        if(op.equals("cleanupAstraFixture")) {
+            new Thread(() -> { try {
+                long id=input.getLong("id"), restore=input.getLong("restore");
+                Object table=HostEntities.calendar(app,id);
+                if (id==restore || table==null || !String.valueOf(Ref.callName(table,"getCalendarDisplayName"))
+                        .equals("CA_VERIFY_"+input.getString("suffix")) || !input.getString("suffix").startsWith("ASTRA_")
+                        || HostEntities.calendar(app,restore)==null) throw new IllegalStateException("Fixture identity changed");
+                if (TableCtx.hostCurrentTableId(app)==id && !app.getSharedPreferences("com.coloros.calendar_preferences",0)
+                        .edit().putLong("sp_key_current_course_table",restore).commit()) throw new IllegalStateException("Selection not restored");
+                CourseMutations.deleteTables(null,Collections.singletonList(id),false);
+                reply(new JSONObject().put("cleanupRequested",id),null);
+            } catch(Exception e) { reply(null,e); } },"verify-astra-cleanup").start();return;
+        }
         if(op.equals("live")) {
             new Thread(() -> { try { reply(CourseLiveDeviceChecks.exercise(app,input), null); }
                 catch (Exception error) { reply(null, error); } }, "verify-live-course").start(); return;

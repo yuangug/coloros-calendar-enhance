@@ -169,11 +169,22 @@ final class RescheduleNativeUi {
     }
     int wheelValue(View wheel) throws Exception { return ((Number) call(wheel, "getValue")).intValue(); }
     Dialog sheet(String title, LinearLayout content, String save, Runnable confirm, Runnable dismissed) throws Exception {
+        return sheet(title, content, save, confirm, dismissed, false);
+    }
+    Dialog sheet(String title, LinearLayout content, String save, Runnable confirm, Runnable dismissed, boolean material) throws Exception {
         Class<?> cls = Class.forName("com.coui.appcompat.panel.COUIBottomSheetDialog", false, activity.getClassLoader());
         int style = id("style", "COUIFitContentBottomSheetDialog");
         Dialog dialog = (Dialog) cls.getConstructor(Context.class, int.class).newInstance(context, style);
-        LinearLayout root = column(); root.setBackgroundColor(surface);
+        LinearLayout root = column();
+        if (!material) root.setBackgroundColor(surface);
+        else {
+            // The panel owns its rounded geometry, shadow, blur lifecycle and IME
+            // handling. A bottom-bar material on the content produces an ellipse.
+            call(dialog, "setBackgroundBlur", true, false);
+            root.setPadding(0, 0, 0, space(16));
+        }
         View header = nativeView("toolbar.COUIToolbar");
+        if (material) header.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         call(header, "setTitle", title); call(header, "setTitleTextAppearance", context, id("style", "textAppearanceSecondTitle"));
         int icon = id("drawable", "icon_cloose");
         if (icon == 0) throw new IllegalStateException("宿主关闭图标不可用");
@@ -187,13 +198,35 @@ final class RescheduleNativeUi {
             root.addView(button, lp);
         }
         dialog.setContentView(root); dialog.setCanceledOnTouchOutside(true); dialog.setOnDismissListener(d -> dismissed.run());
+        if (material && dialog.getWindow() != null)
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         Object behavior = call(dialog, "getBehavior");
         try { call(behavior, "setDraggable", false); } catch (Exception ignored) { }
         Object chrome = call(dialog, "getDragableLinearLayout");
         if (chrome != null) for (String part : new String[]{"getDragView", "getPanelBarView", "getDrawLayout"}) {
             Object view = call(chrome, part); if (view instanceof View) ((View) view).setVisibility(View.GONE);
         }
-        try { dialog.show(); return dialog; }
+        try {
+            dialog.show();
+            if (material && Build.VERSION.SDK_INT >= 30) {
+                // Account only for the system bar area which actually intersects
+                // this panel; COUI already supplies a margin on floating panels.
+                root.setOnApplyWindowInsetsListener((v, insets) -> {
+                    v.post(() -> {
+                        if (!v.isAttachedToWindow()) return;
+                        int[] location = new int[2]; v.getLocationOnScreen(location);
+                        android.graphics.Rect bounds = activity.getWindowManager().getCurrentWindowMetrics().getBounds();
+                        int nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                        int covered = Math.max(0, location[1] + v.getHeight() - (bounds.bottom - nav));
+                        int bottom = space(16) + Math.min(nav, covered);
+                        if (v.getPaddingBottom() != bottom) v.setPadding(0, 0, 0, bottom);
+                    });
+                    return insets;
+                });
+                root.requestApplyInsets();
+            }
+            return dialog;
+        }
         catch (Exception failure) { closeFailed(dialog); throw failure; }
     }
     static final class Page {
@@ -201,6 +234,9 @@ final class RescheduleNativeUi {
         Page(Dialog dialog, LinearLayout body, MenuItem save) { this.dialog = dialog; this.body = body; this.save = save; }
     }
     Page page(String title, Runnable confirmed, Runnable dismissed) throws Exception {
+        return page(title, confirmed, dismissed, false);
+    }
+    Page page(String title, Runnable confirmed, Runnable dismissed, boolean material) throws Exception {
         // A normal Dialog theme is floating even at MATCH_PARENT and leaves the timetable
         // visible behind the status/navigation bars. Reuse the actual preference Activity theme.
         Dialog dialog = new Dialog(activity, pageTheme); dialog.setOwnerActivity(activity); dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -219,6 +255,8 @@ final class RescheduleNativeUi {
         Menu menu = (Menu) call(toolbar, "getMenu"); MenuItem save = menu.add("确认");
         save.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         save.setOnMenuItemClickListener(item -> { confirmed.run(); return true; });
+        // COUIToolbar already renders material on its action/navigation controls.
+        // Wrapping the entire toolbar in a bottom-bar material creates a large pill.
         root.addView(toolbar, new LinearLayout.LayoutParams(-1, dim("toolbar_height", 52)));
         LinearLayout body = column(); root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(hostRoot); dialog.setOnDismissListener(d -> dismissed.run());
@@ -231,7 +269,8 @@ final class RescheduleNativeUi {
             window.setDecorFitsSystemWindows(false);
             hostRoot.setOnApplyWindowInsetsListener((v, insets) -> {
                 android.graphics.Insets safe = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                v.setPadding(safe.left, safe.top, safe.right, safe.bottom); return insets;
+                int bottom = material ? Math.max(safe.bottom, insets.getInsets(WindowInsets.Type.ime()).bottom) : safe.bottom;
+                v.setPadding(safe.left, safe.top, safe.right, bottom); return insets;
             });
         } else hostRoot.setFitsSystemWindows(true);
         try {

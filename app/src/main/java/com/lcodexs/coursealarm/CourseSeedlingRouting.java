@@ -11,6 +11,7 @@ import org.json.JSONObject;
 final class CourseSeedlingRouting {
     private static final String SEEDLING = "com.oplus.pantanal.seedling.";
     static volatile boolean available;
+    private static final java.util.Set<String> hidden = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     static void install(XposedModule module, ClassLoader loader) throws ReflectiveOperationException {
         Class<?> tool = Class.forName(SEEDLING + "util.SeedlingTool", false, loader);
@@ -33,12 +34,16 @@ final class CourseSeedlingRouting {
         Route route = new Route(statusBar, notification, getMap, setMap, setPanel, setHide);
         module.hook(send).setId("course_astra_seedling_start").intercept(chain -> {
             Object request = chain.getArg(1);
-            if (request != null && getFlag.invoke(request) instanceof Enum<?> flag && "START".equals(flag.name()))
-                route.apply((JSONObject) getData.invoke(request), (String) getId.invoke(request), getOptions.invoke(request));
+            if (request != null && getFlag.invoke(request) instanceof Enum<?> flag) {
+                String service = (String) getId.invoke(request);
+                if ("START".equals(flag.name()))
+                    route.apply((JSONObject) getData.invoke(request), service, getOptions.invoke(request), true);
+                else if ("END".equals(flag.name()) && service != null) hidden.remove(service);
+            }
             return chain.proceed();
         });
         module.hook(update).setId("course_astra_seedling_update").intercept(chain -> {
-            route.apply((JSONObject) chain.getArg(2), (String) chain.getArg(1), chain.getArg(3));
+            route.apply((JSONObject) chain.getArg(2), (String) chain.getArg(1), chain.getArg(3), false);
             return chain.proceed();
         });
         available = true;
@@ -46,21 +51,29 @@ final class CourseSeedlingRouting {
 
     private record Route(Object statusBar, Object notification, Method getMap, Method setMap,
                          Method setPanel, Method setHide) {
-        void apply(JSONObject data, String service, Object options) {
+        void apply(JSONObject data, String service, Object options, boolean startRequest) {
             if (!available || data == null || options == null || service == null || service.isEmpty()
-                    || !service.equals(data.optString("serviceInstanceId")) || !data.optBoolean("courseCapsuleRouting")) return;
+                    || !service.equals(data.optString("serviceInstanceId"))
+                    || !(data.optBoolean("courseCapsuleRouting") || data.optBoolean("courseKeepVisible") || hidden.contains(service))) return;
             long event = data.optLong("eventId", -1), start = data.optLong("courseStartTime", -1);
             if (start <= 0 || event <= 0) return;
             CourseOccurrence item = CourseLiveCoordinator.find(event, start);
-            if (item == null || !CourseLiveCoordinator.astraOwnsCapsule(item)) return;
+            if (item == null) return;
+            boolean astra = data.optBoolean("courseCapsuleRouting") && CourseLiveCoordinator.astraOwnsCapsule(item);
+            boolean keep = data.optBoolean("courseKeepVisible") && CourseLiveCoordinator.keepVisible(item, System.currentTimeMillis());
+            if (!astra && !keep && !hidden.contains(service)) return;
             try {
                 Map<Object, Object> hosts = new LinkedHashMap<>();
                 if (getMap.invoke(options) instanceof Map<?, ?> old) hosts.putAll(old);
-                hosts.put(statusBar, false);
+                hosts.put(statusBar, !astra);
                 hosts.put(notification, true);
                 setMap.invoke(options, hosts);
-                setPanel.invoke(options, Boolean.FALSE);
-                setHide.invoke(options, true);
+                if (astra) setPanel.invoke(options, Boolean.FALSE);
+                else if (!startRequest) setPanel.invoke(options, (Object) null); // Keep the capsule, don't re-open its panel.
+                setHide.invoke(options, astra);
+                boolean changed = astra ? hidden.add(service) : hidden.remove(service);
+                if (startRequest || changed) Logx.i(CourseAlarmEntry.TAG, "course Seedling route "
+                        + (startRequest ? "START" : "UPDATE") + " StatusBar=" + !astra + " Notification=true");
             } catch (ReflectiveOperationException | RuntimeException error) {
                 Logx.e(CourseAlarmEntry.TAG, "course Seedling host routing failed", error);
             }

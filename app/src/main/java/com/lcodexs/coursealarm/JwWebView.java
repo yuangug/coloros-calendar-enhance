@@ -3,291 +3,247 @@ package com.lcodexs.coursealarm;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.Context;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.text.InputType;
-import android.util.TypedValue;
-import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
-import android.webkit.CookieManager;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-
+import android.view.*;
+import android.view.inputmethod.EditorInfo;
+import android.webkit.*;
+import android.widget.*;
 import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.Collections;
 
-/**
- * 教务系统导入（网页登录版）：
- * 弹一个全屏 WebView，用户自己输入网址 → 自己登录 → 自己点到「学期理论课表」→ 点确定，
- * 我们抓当前页面（含同源 iframe）的 outerHTML，交给 JwClient 的表格网格解析器。
- *
- * 为什么这么做：教务系统几乎都是「登录态 + JS 渲染 + 可能 iframe」，直连 POST 只对少数学校有效；
- * 借用户已经登录好的 WebView 拿 DOM 是最省事也最稳的路子（WakeUp 的每校适配器本质上也是在解这个页面）。
- *
- * 模块不能新增 Activity（LSPosed 模块没法往宿主 manifest 加组件），所以这里用一个全屏 Dialog 承载 WebView。
- */
+/** Both school import methods share the calendar's preference page and navigation controls. */
 final class JwWebView {
-    private static final String T = CourseAlarmEntry.TAG;
+    interface OnHtml { void onHtml(String html, String title); }
+    final Activity activity;
+    final OnHtml html;
+    final ShiguangImport.Source source;
+    final Runnable finishSelection;
+    RescheduleNativeUi.Page page;
+    WebView web;
+    private EditText address;
+    private TextView status;
+    private TextView emptyMessage;
+    private View emptyState;
+    private FrameLayout webContainer;
+    private ShiguangSession session;
+    private Dialog jsDialog;
+    private int document;
+    private boolean ready, tried, closed;
 
-    interface OnHtml {
-        void onHtml(String html, String title);
+    static void open(Activity a, OnHtml callback) {
+        new JwWebView(a, callback, null, () -> {}).show();
     }
-
-    private JwWebView() {
+    static void open(Activity a, ShiguangImport.Source source, Runnable finishSelection) {
+        new JwWebView(a, null, source, finishSelection).show();
+    }
+    private JwWebView(Activity a, OnHtml html, ShiguangImport.Source source, Runnable finishSelection) {
+        activity = a; this.html = html; this.source = source; this.finishSelection = finishSelection;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    static void open(Activity a, OnHtml cb) {
-        if (a == null) return;
-        boolean night = (a.getResources().getConfiguration().uiMode
-                & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
-                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        int bg = night ? 0xFF141416 : 0xFFFFFFFF;
-        int fg = night ? 0xFFEDEDED : 0xFF1A1A1A;
-        int hint = night ? 0xFF8A8A8E : 0xFF8C8C92;
-        int field = night ? 0xFF2A2A2D : 0xFFF2F2F5;
-        int divider = night ? 0xFF333336 : 0xFFE6E6E9;
-        int accent = night ? 0xFF7BB0FF : 0xFF1464F4;
-
-        final Dialog d = new Dialog(a, android.R.style.Theme_DeviceDefault_Light_NoActionBar);
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (d.getWindow() != null) {
-            d.getWindow().setBackgroundDrawable(new ColorDrawable(bg));
-            d.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT);
-        }
-
-        LinearLayout root = new LinearLayout(a);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(bg);
-        // 全屏 Dialog 不吃 insets，自己补状态栏/导航栏高度，否则地址栏会被状态栏压住
-        int sbH = res(a, "status_bar_height");
-        int nbH = res(a, "navigation_bar_height");
-        root.setPadding(0, sbH > 0 ? sbH : PickerSheet.dp(a, 28), 0,
-                nbH > 0 ? nbH : PickerSheet.dp(a, 16));
-
-        // ── 顶部：地址栏 + 打开 ───────────────────────────────────────────────
-        LinearLayout bar = new LinearLayout(a);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(PickerSheet.dp(a, 12), PickerSheet.dp(a, 10),
-                PickerSheet.dp(a, 8), PickerSheet.dp(a, 10));
-
-        final EditText url = new EditText(a);
-        url.setSingleLine(true);
-        url.setHint("输入你学校的教务系统网址（登录页）");
-        url.setHintTextColor(hint);
-        url.setTextColor(fg);
-        url.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        url.setPadding(PickerSheet.dp(a, 12), PickerSheet.dp(a, 8),
-                PickerSheet.dp(a, 12), PickerSheet.dp(a, 8));
-        GradientDrawable fbg = new GradientDrawable();
-        fbg.setColor(field);
-        fbg.setCornerRadius(PickerSheet.dp(a, 10));
-        url.setBackground(fbg);
-        String last = Prefs.jwLastUrl();
-        url.setText(last == null || last.isEmpty() ? "http://" : last);
-        bar.addView(url, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView go = new TextView(a);
-        go.setText("打开");
-        go.setTextColor(accent);
-        go.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        go.setTypeface(go.getTypeface(), android.graphics.Typeface.BOLD);
-        go.setGravity(Gravity.CENTER);
-        go.setPadding(PickerSheet.dp(a, 14), PickerSheet.dp(a, 8),
-                PickerSheet.dp(a, 6), PickerSheet.dp(a, 8));
-        bar.addView(go);
-        root.addView(bar);
-
-        View hline = new View(a);
-        hline.setBackgroundColor(divider);
-        root.addView(hline, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
-
-        // ── 中间：WebView ────────────────────────────────────────────────────
-        final WebView wv = new WebView(a);
-        WebSettings s = wv.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setBuiltInZoomControls(true);
-        s.setDisplayZoomControls(false);
-        s.setSupportZoom(true);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        s.setUserAgentString(s.getUserAgentString() + " LSPX-CourseAlarm");
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true);
-        // 有的 ROM 上 WebView 放进自定义 Dialog 会整片空白（硬件层没合成）——强制软件层最稳
-        wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        wv.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String u) {
-                view.loadUrl(u);
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String u) {
-                Logx.i(T, "jw webview page finished url=" + u
-                        + " height=" + view.getContentHeight()
-                        + " progress=" + view.getProgress());
-            }
-
-            @Override
-            public void onReceivedError(WebView view, android.webkit.WebResourceRequest req,
-                                        android.webkit.WebResourceError err) {
-                Logx.w(T, "jw webview error " + (req == null ? "" : req.getUrl())
-                        + " code=" + (err == null ? -1 : err.getErrorCode())
-                        + " desc=" + (err == null ? "" : err.getDescription()));
-            }
-
-            @Override
-            public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler,
-                                           android.net.http.SslError error) {
-                // 很多教务系统的证书是自签/过期；用户是主动打开自己学校的页面，这里放行并记日志
-                Logx.w(T, "jw webview ssl error, proceed: "
-                        + (error == null ? "" : error.getUrl()));
-                handler.proceed();
-            }
-        });
-        wv.setWebChromeClient(new WebChromeClient());
-        root.addView(wv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                0, 1f));
-
-        // ── 底部：取消 / 确定 ────────────────────────────────────────────────
-        View hline2 = new View(a);
-        hline2.setBackgroundColor(divider);
-        root.addView(hline2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
-
-        LinearLayout bottom = new LinearLayout(a);
-        bottom.setOrientation(LinearLayout.HORIZONTAL);
-
-        TextView cancel = new TextView(a);
-        cancel.setText("取消");
-        cancel.setTextColor(accent);
-        cancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        cancel.setGravity(Gravity.CENTER);
-        cancel.setMinHeight(PickerSheet.dp(a, 52));
-        cancel.setOnClickListener(v -> d.dismiss());
-        bottom.addView(cancel, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        View vline = new View(a);
-        vline.setBackgroundColor(divider);
-        bottom.addView(vline, new LinearLayout.LayoutParams(1, PickerSheet.dp(a, 26)));
-
-        TextView ok = new TextView(a);
-        ok.setText("确定（解析当前页课表）");
-        ok.setTextColor(accent);
-        ok.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        ok.setTypeface(ok.getTypeface(), android.graphics.Typeface.BOLD);
-        ok.setGravity(Gravity.CENTER);
-        ok.setMinHeight(PickerSheet.dp(a, 52));
-        bottom.addView(ok, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f));
-        root.addView(bottom);
-
-        go.setOnClickListener(v -> {
-            String u = normalize(url.getText().toString());
-            if (u.isEmpty()) {
-                CurriculumIo.toast(a, "先填网址");
-                return;
-            }
-            Prefs.setJwLastUrl(u);
-            Logx.i(T, "jw webview load " + u);
-            wv.loadUrl(u);
-        });
-
-        ok.setOnClickListener(v -> {
-            String cur = wv.getUrl();
-            Logx.i(T, "jw webview harvest, current url=" + cur);
-            String js = "(function(){var out=[];try{out.push(document.documentElement.outerHTML);}catch(e){}"
-                    + "try{var fs=document.querySelectorAll('iframe,frame');"
-                    + "for(var i=0;i<fs.length;i++){try{var doc=fs[i].contentDocument;"
-                    + "if(doc&&doc.documentElement){out.push(doc.documentElement.outerHTML);}}catch(e){}}}catch(e){}"
-                    + "return out.join('\\n<!--frame-->\\n');})()";
-            wv.evaluateJavascript(js, value -> {
-                String html = unquote(value);
-                int n = html == null ? 0 : html.length();
-                Logx.i(T, "jw webview harvested html len=" + n);
-                if (n < 200) {
-                    CurriculumIo.toast(a, "页面还没加载好，或当前页不是课表");
-                    return;
-                }
-                d.dismiss();
-                if (cb != null) cb.onHtml(html, cur);
+    private void show() {
+        if (!TransferUi.alive(activity)) return;
+        try {
+            RescheduleNativeUi ui = new RescheduleNativeUi(activity);
+            page = ui.page(source == null ? "教务系统导入" : "拾光课表", this::parse, this::dispose, true);
+            page.save.setTitle("解析课表").setEnabled(false);
+            View addressBar = ui.nativeView("searchview.COUISearchBar");
+            RescheduleNativeUi.call(addressBar, "setSearchAnimateType", 1);
+            RescheduleNativeUi.call(addressBar, "setInputMethodAnimationEnabled", false);
+            RescheduleNativeUi.call(addressBar, "setFunctionalButtonText", "打开");
+            address = (EditText) RescheduleNativeUi.call(addressBar, "getSearchEditText");
+            address.setHint("教务系统网址");
+            address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+            address.setImeOptions(EditorInfo.IME_ACTION_GO);
+            address.setSelectAllOnFocus(true);
+            address.setSingleLine(true);
+            address.setText(source == null ? Prefs.jwLastUrl() : source.adapter.url);
+            int searchIcon = ui.id("drawable", "menu_ic_search");
+            if (searchIcon != 0)
+                RescheduleNativeUi.call(addressBar, "setSearchViewIcon", ui.context.getDrawable(searchIcon));
+            TextView open = (TextView) RescheduleNativeUi.call(addressBar, "getFunctionalButton");
+            if (open != null) open.setOnClickListener(v -> go());
+            addressBar.setOnClickListener(v -> {
+                address.requestFocus();
+                android.view.inputmethod.InputMethodManager imm =
+                        (android.view.inputmethod.InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.showSoftInput(address, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
             });
-        });
-
-        d.setOnDismissListener(x -> {
+            LinearLayout.LayoutParams addressLp = new LinearLayout.LayoutParams(-1, ui.dim("coui_search_view_height", 52));
+            addressLp.setMargins(ui.space(16), ui.space(8), ui.space(16), ui.space(8));
+            page.body.addView(addressBar, addressLp);
+            addressBar.post(() -> {
+                if (closed || !addressBar.isAttachedToWindow()) return;
+                try {
+                    if (((Number) RescheduleNativeUi.call(addressBar, "getSearchState")).intValue() != 1)
+                        RescheduleNativeUi.call(addressBar, "changeStateImmediately", 1);
+                } catch (Exception e) { TransferUi.failed(activity, e); }
+            });
+            status = TransferUi.caption(ui, source == null ? "" : source.adapter.name);
+            if (source == null) status.setVisibility(View.GONE);
+            page.body.addView(status);
+            web = new WebView(activity);
+            WebSettings settings = web.getSettings();
+            settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true);
+            settings.setAllowFileAccess(false); settings.setAllowContentAccess(false);
+            settings.setLoadWithOverviewMode(true); settings.setUseWideViewPort(true);
+            settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
+            web.setWebViewClient(new WebViewClient() {
+                @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                    return origin(request.getUrl().toString()) == null;
+                }
+                @Override public void onPageStarted(WebView v, String url, Bitmap icon) {
+                    if (closed) return;
+                    hidePlaceholder();
+                    ++document; ready = false; tried = false; stopSession();
+                    page.save.setTitle("解析课表").setEnabled(false);
+                    Uri site = origin(url);
+                    if (site != null) address.setText(site.toString());
+                }
+                @Override public void onPageFinished(WebView v, String url) {
+                    if (closed || !url.equals(v.getUrl())) return;
+                    ready = origin(url) != null; page.save.setEnabled(ready);
+                    if (ready) hidePlaceholder();
+                }
+                @Override public void onReceivedError(WebView v, WebResourceRequest request, WebResourceError error) {
+                    if (!closed && request.isForMainFrame()) {
+                        String detail = "网页加载失败：" + error.getDescription();
+                        message(detail); showPlaceholder(detail);
+                    }
+                }
+                @Override public void onReceivedSslError(WebView v, SslErrorHandler handler, android.net.http.SslError error) {
+                    handler.cancel(); if (!closed) {
+                        message("无法验证该教务网站的证书");
+                        showPlaceholder("无法验证该教务网站的证书，请检查网址或联系学校管理员。");
+                    }
+                }
+            });
+            web.setWebChromeClient(new WebChromeClient() {
+                @Override public boolean onJsAlert(WebView v, String url, String msg, JsResult result) {
+                    return webDialog(msg, null, result, false);
+                }
+                @Override public boolean onJsConfirm(WebView v, String url, String msg, JsResult result) {
+                    return webDialog(msg, null, result, true);
+                }
+                @Override public boolean onJsPrompt(WebView v, String url, String msg, String value, JsPromptResult result) {
+                    return webDialog(msg, value == null ? "" : value, result, true);
+                }
+            });
+            web.setBackgroundColor(ui.background);
+            webContainer = new FrameLayout(ui.context);
+            webContainer.setBackgroundColor(ui.background);
+            webContainer.addView(web, new FrameLayout.LayoutParams(-1, -1));
+            emptyState = ui.column();
+            ((LinearLayout) emptyState).setGravity(Gravity.CENTER);
+            emptyState.setPadding(ui.space(36), ui.space(24), ui.space(36), ui.space(24));
+            TextView emptyTitle = ui.text("打开教务系统", 18, false);
+            emptyTitle.setGravity(Gravity.CENTER);
+            emptyMessage = ui.text("输入教务系统网址并点击“打开”。登录后进入个人课表页面，再点右上角“解析课表”。", 14, true);
+            emptyMessage.setGravity(Gravity.CENTER);
+            emptyMessage.setMaxLines(4);
+            LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
+            titleLp.setMargins(0, 0, 0, ui.space(8));
+            ((LinearLayout) emptyState).addView(emptyTitle, titleLp);
+            ((LinearLayout) emptyState).addView(emptyMessage, new LinearLayout.LayoutParams(-1, -2));
+            webContainer.addView(emptyState, new FrameLayout.LayoutParams(-1, -1));
+            page.body.addView(webContainer, new LinearLayout.LayoutParams(-1, 0, 1));
+            if (address.getText().toString().trim().isEmpty())
+                showPlaceholder("输入教务系统网址并点击“打开”。登录后进入个人课表页面，再点右上角“解析课表”。");
+            address.setOnEditorActionListener((v, id, e) -> {
+                if (id != EditorInfo.IME_ACTION_GO) return false;
+                go(); return true;
+            });
+            page.body.setFocusableInTouchMode(true); page.body.requestFocus();
+            if (source != null && !source.adapter.url.isEmpty()) web.loadUrl(source.adapter.url);
+        } catch (Exception e) { close(); TransferUi.failed(activity, e); }
+    }
+    private boolean webDialog(String message, String value, JsResult result, boolean cancelable) {
+        if (closed || jsDialog != null && jsDialog.isShowing()) { result.cancel(); return true; }
+        try {
+            if (value == null) {
+                jsDialog = TransferUi.alert(activity, "教务系统", message, "确定", yes -> {
+                    if (yes || !cancelable) result.confirm(); else result.cancel();
+                });
+            } else {
+                jsDialog = TransferUi.form(activity, "教务系统", Collections.singletonList(new String[]{"value", message}),
+                        Collections.singletonMap("value", value), answer -> {
+                            if (answer == null) result.cancel();
+                            else ((JsPromptResult) result).confirm(answer.get("value"));
+                        });
+            }
+        } catch (Exception e) { result.cancel(); TransferUi.failed(activity, e); }
+        return true;
+    }
+    private void go() {
+        String url = address.getText().toString().trim();
+        if (!url.contains(":") || !url.contains("://") && url.matches("[\\w.-]+:[0-9]+.*")) url = "https://" + url;
+        if (origin(url) == null) {
+            message("请输入教务系统的 http 或 https 网址");
+            showPlaceholder("请输入有效的教务系统 http 或 https 网址。"); return;
+        }
+        if (source == null) Prefs.setJwLastUrl(origin(url).toString());
+        web.requestFocus(); web.loadUrl(url);
+    }
+    static Uri origin(String url) {
+        if (url == null) return null;
+        Uri u = Uri.parse(url);
+        if (!("http".equalsIgnoreCase(u.getScheme()) || "https".equalsIgnoreCase(u.getScheme()))
+                || u.getHost() == null || u.getHost().isEmpty() || u.getUserInfo() != null) return null;
+        return new Uri.Builder().scheme(u.getScheme().toLowerCase(java.util.Locale.ROOT)).encodedAuthority(u.getEncodedAuthority()).build();
+    }
+    private void parse() {
+        if (closed || !ready || web == null || origin(web.getUrl()) == null) return;
+        if (source != null) {
+            if (tried) { stopSession(); web.reload(); message("网页正在重新加载，加载后可再次解析"); return; }
+            tried = true; page.save.setTitle("重新加载");
+            message("正在解析：" + source.adapter.name);
+            session = new ShiguangSession(this);
+            session.start(origin(web.getUrl()));
+            return;
+        }
+        final int epoch = document;
+        page.save.setEnabled(false);
+        String site = origin(web.getUrl()).toString();
+        web.evaluateJavascript("(function(){const out=[document.documentElement.outerHTML];"
+                + "for(const f of document.querySelectorAll('iframe,frame'))try{if(f.contentDocument)"
+                + "out.push(f.contentDocument.documentElement.outerHTML)}catch(e){};return out.join('\\n<!--frame-->\\n');})()", raw -> {
+            if (closed || document != epoch) return;
+            page.save.setEnabled(true);
             try {
-                root.removeView(wv);
-                wv.stopLoading();
-                wv.loadUrl("about:blank");
-                wv.destroy();
-            } catch (Throwable ignored) {
-            }
+                String data = new JSONArray("[" + raw + "]").getString(0);
+                if (data.length() < 200) { message("页面还没加载好，或当前页不是课表"); return; }
+                close(); html.onHtml(data, site);
+            } catch (Exception e) { message("读不到当前页的课表"); }
         });
-
-        d.setContentView(root);
-        Window w = d.getWindow();
-        if (w != null) {
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        }
-        try {
-            d.show();
-        } catch (Throwable t) {
-            Logx.e(T, "jw webview show failed", t);
-            CurriculumIo.toast(a, "打开网页失败：" + t);
-        }
     }
-
-    private static int res(Context c, String name) {
-        try {
-            int id = c.getResources().getIdentifier(name, "dimen", "android");
-            return id == 0 ? 0 : c.getResources().getDimensionPixelSize(id);
-        } catch (Throwable t) {
-            return 0;
+    void message(String message) {
+        if (closed || status == null) return;
+        status.setVisibility(View.VISIBLE); status.setText(message);
+    }
+    private void showPlaceholder(String message) {
+        if (closed || emptyState == null || emptyMessage == null) return;
+        emptyMessage.setText(message);
+        emptyState.setVisibility(View.VISIBLE);
+        if (web != null) web.setVisibility(View.INVISIBLE);
+    }
+    private void hidePlaceholder() {
+        if (emptyState != null) emptyState.setVisibility(View.GONE);
+        if (web != null) web.setVisibility(View.VISIBLE);
+    }
+    boolean active(ShiguangSession s) { return !closed && session == s && TransferUi.alive(activity); }
+    void close() { if (page != null && page.dialog.isShowing()) page.dialog.dismiss(); dispose(); }
+    private void stopSession() { ShiguangSession old = session; session = null; if (old != null) old.close(); }
+    private void dispose() {
+        if (closed) return;
+        closed = true; stopSession();
+        if (jsDialog != null) jsDialog.dismiss();
+        if (web != null) {
+            if (web.getParent() instanceof ViewGroup) ((ViewGroup)web.getParent()).removeView(web);
+            web.stopLoading(); web.setWebChromeClient(null); web.setWebViewClient(new WebViewClient()); web.destroy(); web = null;
         }
-    }
-
-    private static String normalize(String raw) {
-        String u = raw == null ? "" : raw.trim();
-        if (u.isEmpty() || "http://".equals(u)) return "";
-        if (u.startsWith("http://") || u.startsWith("https://") || u.startsWith("data:")) return u;
-        u = "http://" + u;
-        return u;
-    }
-
-    /** evaluateJavascript 回传的是 JSON 字符串字面量，解成真字符串 */
-    private static String unquote(String v) {
-        if (v == null) return null;
-        if ("null".equals(v)) return null;
-        try {
-            if (v.startsWith("\"")) {
-                return new JSONArray("[" + v + "]").getString(0);
-            }
-            return v;
-        } catch (Throwable t) {
-            return v;
-        }
-    }
-
-    static void toast(Context c, String m) {
-        CurriculumIo.toast(c, m);
     }
 }

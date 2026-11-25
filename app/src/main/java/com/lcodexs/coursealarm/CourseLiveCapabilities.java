@@ -62,11 +62,14 @@ final class CourseLiveCapabilities {
             long expiry = reports.getLong(prefix + "expires", 0);
             if ("active".equals(status) && expiry > now) value.append("已接管课程胶囊");
             else if ("connecting".equals(status) && now - reported < 120000L) value.append("正在连接星河岛");
+            else if ("missing".equals(status) && now - reported < 600000L)
+                value.append("未检测到星河岛，保留日历原生胶囊");
             else if ("unavailable".equals(status) && now - reported < 600000L)
-                value.append("SDK 未接收，保留日历原生胶囊");
+                value.append("星河岛未接收课程卡片，将自动重试");
             else if ("ended".equals(status)) value.append("当前没有活动课程卡片");
             else value.append("已开启，等待课程提醒卡片");
         }
+        if (settings.keepDuringCourse) value.append("\n持续显示：已开启，按本课表的课前提醒时间至下课");
         return value.toString();
     }
 

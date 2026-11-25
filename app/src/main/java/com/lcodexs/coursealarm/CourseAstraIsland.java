@@ -13,7 +13,8 @@ import java.util.Base64;
 final class CourseAstraIsland {
     static final String PREFIX = "coursealarm.course.";
     static final String PUBLISH = "astra.publish.v1", END = "astra.end.v1";
-    static final String ACCEPTED = "accepted", CONNECTING = "connecting", UNAVAILABLE = "unavailable";
+    static final String ACCEPTED = "accepted", CONNECTING = "connecting", UNAVAILABLE = "unavailable",
+            MISSING = "missing", DISMISSED = "dismissed";
     private static final Uri ENDPOINT = Uri.parse("content://" + CourseDndClient.AUTHORITY);
 
     private CourseAstraIsland() { }
@@ -21,11 +22,13 @@ final class CourseAstraIsland {
     static String publish(Context app, CourseOccurrence item, CourseLiveSettings.State settings,
                           PendingIntent open, PendingIntent dismiss, PendingIntent dnd, boolean dndActive) {
         Bundle request = request(item.key);
+        CourseLiveCoordinator.attachIslandDeadlines(request);
         request.putString("title", limit(item.title, 128));
         request.putString("room", limit(item.room.trim(), 128));
         request.putString("teacher", limit(item.teacher.trim(), 128));
         request.putLong("start", item.start);
         request.putLong("end", item.end);
+        if (!item.breaks.gaps().isEmpty()) request.putLongArray("breaksV1", item.breaks.encode());
         request.putBoolean("showProgress", settings.showProgress);
         request.putString("style", settings.astraStyle.id);
         request.putLong("expires", item.expiresAt(settings.retainMinutes));
@@ -45,10 +48,10 @@ final class CourseAstraIsland {
     private static String call(Context app, String method, Bundle request) {
         try {
             Bundle result = app.getContentResolver().call(ENDPOINT, method, null, request);
-            return result == null ? UNAVAILABLE : result.getString("result", UNAVAILABLE);
+            return result == null ? CONNECTING : result.getString("result", CONNECTING);
         } catch (RuntimeException error) {
             Logx.w(CourseAlarmEntry.TAG, "AstraFlow module IPC " + method + ": " + error.getClass().getSimpleName());
-            return UNAVAILABLE;
+            return CONNECTING;
         }
     }
 

@@ -112,6 +112,7 @@ public final class HostCompatibilityProbe {
             require(!CourseClipboard.overlaps(copy,otherWeek),"different teaching weeks conflict");
         });
         check("reminder and period serialization",HostCompatibilityProbe::tableRoundTrip);
+        check("native course reminder window model", () -> windowModel(args[1]));
         check("course entry and import-preview isolation",()->{
             android.content.Intent ordinary=new android.content.Intent().setClassName("com.coloros.calendar",TableEntryRoute.LEGACY);
             require(TableEntryRoute.isTable(ordinary) && !TableEntryRoute.isPreview(ordinary),"ordinary course entry");
@@ -215,6 +216,27 @@ public final class HostCompatibilityProbe {
         require(values.getAsLong("calendar_id")==73L,"ORM calendar mapping");
         require("FREQ=WEEKLY;COUNT=4".equals(values.getAsString("rrule")),"ORM recurrence mapping");
     }
+    private static void windowModel(String apk) throws Exception {
+        // Calendar has its own obfuscated Kotlin runtime, just as in the actual LSPosed host process.
+        ClassLoader calendar = new dalvik.system.PathClassLoader(apk, android.content.Context.class.getClassLoader());
+        String host = "com.android.calendar.seedling.notificationfluidcard.";
+        Method send = calendar.loadClass(host + "FluidSeedingManager").getMethod("sendFluidSeedingCard",
+                calendar.loadClass("com.android.calendar.alerts.INotificationInfo"));
+        CourseWindowPublisher publisher = new CourseWindowPublisher(calendar, send);
+        long start = 1_800_000_000_000L, end = start + 6_000_000L, alarm = start - 1_800_000L;
+        CourseOccurrence item = new CourseOccurrence("local", "probe", 73, 4242, start, end, alarm,
+                "Window probe", "Room", "", "Asia/Shanghai");
+        Object info = publisher.info(item, "oplus_course_default_calendar", "LOCAL");
+        require(info != null && !(Boolean) getter(info,"isForceAlert"), "ordinary course identity lost");
+        require(getter(info,"getTargetId").equals(4242L) && getter(info,"getBeginTime").equals(start)
+                && getter(info,"getEndTime").equals(end) && getter(info,"getAlarmTime").equals(alarm),
+                "native sender received different occurrence times");
+        require(getter(info,"getExtendedProperties").equals(CourseWriter.COURSE_EXT_PROP)
+                && "Room".equals(getter(info,"getLocation")) && "Asia/Shanghai".equals(getter(info,"getTimezone")),
+                "native sender lost course metadata");
+        require(publisher.info(item, "other-calendar", "LOCAL") == null, "ordinary calendar entered the window");
+    }
+
     private static void tableRoundTrip()throws Exception{
         String json="{\"hasReminder\":true,\"reminderTime\":30,\"termBeginTime\":1793548800000,\"weekNumberOfThisTerm\":20,\"courseTableTime\":{\"morningCourseNumber\":1,\"afternoonCourseNumber\":0,\"nightCourseNumber\":0,\"morningCoursesList\":[{\"startTime\":29400000,\"endTime\":32100000}],\"afternoontCoursesList\":[],\"nightCoursesList\":[]}}";
         for(int minutes:new int[]{45,90,100}){

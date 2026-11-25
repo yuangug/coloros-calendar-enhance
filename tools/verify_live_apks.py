@@ -80,6 +80,10 @@ def contracts():
         method(provider, "courseBaseInfo", "([Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;"),
         method(provider, "courseDetailsWeek", "([Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;"),
         method(notification, "isCourse", "()Z"),
+        method(notification, "setAccountType", "(Ljava/lang/String;)V"),
+        method(model, "toNotificationInfo", "()" + INFO),
+        method(ROOT + "NotificationFluidSeedingHelper", "isSupportFluidCloud", "(Z)Z", True),
+        method("com.oplus.pantanal.seedling.util.BaseTool", "genServiceInstanceId", "()Ljava/lang/String;"),
         method(notification, "getAlertFeatures", "()I"),
         method("com.android.calendar.alerts.INotificationInfo", "isForceAlert", "()Z"),
         method("com.coloros.calendar.widget.bottomsheetdialog.CourseListInfoFragment", "initView", "(Landroid/view/View;)V"),
@@ -94,7 +98,7 @@ def contracts():
     result += [method(notification, name, "()J") for name in ("getTargetId", "getBeginTime", "getEndTime", "getAlarmTime")]
     result += [method(event, "getId", "()J")]
     result += [method(event, name, "()Ljava/lang/Long;") for name in ("getDtstart", "getDtend")]
-    result += [method(event, name, "()Ljava/lang/String;") for name in ("getDuration", "getExdate", "getEventTimezone")]
+    result += [method(event, name, "()Ljava/lang/String;") for name in ("getDuration", "getExdate", "getRdate", "getExrule", "getEventTimezone")]
     return result
 
 

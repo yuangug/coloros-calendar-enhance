@@ -19,6 +19,41 @@ public final class CourseOccurrenceCheck {
         throw new AssertionError(description);
     }
 
+    private static void testReminderWindow() {
+        CourseOccurrence item = course(START, START + 100 * 60000L);
+        for (int lead : new int[]{5, 15, 30, 60}) {
+            long remind = START - lead * 60000L;
+            CourseOccurrence lesson = new CourseOccurrence("local", "table", 17, 55, START, item.end, remind, "Math", "", "");
+            check(CourseReminderWindow.nextBoundary(lesson, remind - 1) == remind, "Wake at the configured reminder");
+            check(!CourseReminderWindow.active(lesson, remind - 1) && CourseReminderWindow.active(lesson, remind), "Inclusive reminder boundary");
+            check(CourseReminderWindow.active(lesson, START + 11 * 60000L), "Does not stop ten minutes into class");
+            check(CourseReminderWindow.active(lesson, START + 50 * 60000L), "Includes break");
+            check(CourseReminderWindow.active(lesson, item.end - 1) && !CourseReminderWindow.active(lesson, item.end), "Exclusive class end");
+            check(CourseReminderWindow.nextBoundary(lesson, START) == item.end &&
+                    CourseReminderWindow.nextBoundary(lesson, item.end) == Long.MAX_VALUE, "No new START during retention");
+        }
+        CourseOccurrence off = new CourseOccurrence("local", "table", 17, 55, START, item.end, START, "Math", "", "");
+        check(!CourseReminderWindow.active(off, START) && CourseReminderWindow.nextBoundary(off, START) == Long.MAX_VALUE,
+                "Disabled native reminder cannot create an activity at the start");
+        long halfway = START + 50 * 60000L;
+        check(CourseReminderWindow.keep(item, halfway, true, false), "A cold start inside class can catch up");
+        check(!CourseReminderWindow.keep(item, halfway, true, true), "Do not restore a manually dismissed class");
+        check(!CourseReminderWindow.keep(item, halfway, false, false), "Window does not run without opt-in");
+        CourseOccurrence following = course(item.end, item.end + 45 * 60000L);
+        check(CourseReminderWindow.active(item, item.end - 1) && CourseReminderWindow.active(following, item.end - 1),
+                "A following reminder can begin before this class ends");
+        check(!CourseReminderWindow.active(item, item.end) && CourseReminderWindow.active(following, item.end),
+                "Ending the first of two adjacent classes cannot end the second");
+        CourseReminderWindow gate = new CourseReminderWindow();
+        check(gate.tryCheck("a", 1000) && !gate.tryCheck("a", 1001), "Unsupported host backoff");
+        check(gate.trySend("a", 1010) && !gate.trySend("a", 1010), "Incoming and scheduled send share a single START");
+        check(!gate.tryCheck("a", 16000) && gate.tryCheck("a", 16010), "Wait for asynchronous native delivery");
+        check(gate.trySend("b", 1100) && !gate.trySend("b", 1101), "Overlapping courses have separate publication slots");
+        check(gate.trySend("a", 16010), "Retry unconfirmed send");
+        gate.retain(java.util.Set.of("a"));
+        check(gate.nextAttempt("b") == 0 && gate.nextAttempt("a") > 16010, "Withdrawing one window preserves the other");
+    }
+
     private static CourseOccurrence course(long start, long end) {
         return new CourseOccurrence("calendar", "stable-table-a", 11, 22, start, end,
                 start - 30 * 60_000L, "Test course", "Room", "Teacher");
@@ -26,6 +61,9 @@ public final class CourseOccurrenceCheck {
 
     public static int run() {
         checks = 0;
+        checkBreakStages();
+        testReminderWindow();
+        testAstraWindow();
         for (int minutes : new int[]{45, 90, 100}) {
             long length = minutes * 60_000L;
             CourseOccurrence item = course(START, START + length);
@@ -137,6 +175,71 @@ public final class CourseOccurrenceCheck {
         rejects(() -> new CourseOccurrence("calendar", "table", 0, 22, START, START + 1000, START, "", "", ""), "Require actual calendar ID");
         rejects(() -> new CourseOccurrence("calendar", "table", 11, 0, START, START + 1000, START, "", "", ""), "Require actual event ID");
         return checks;
+    }
+
+    private static void testAstraWindow() {
+        CourseOccurrence item = course(START, START + 90 * 60000L);
+        check(!CourseIslandWindow.eligible(item, item.reminderAt - 1, 5, false, false), "No premature capsule");
+        check(CourseIslandWindow.eligible(item, item.reminderAt, 5, false, false), "Reminder does not wait for shade");
+        for (int retention : new int[]{0, 1, 5, 10}) {
+            long expires = item.expiresAt(retention);
+            for (long now : new long[]{START, item.end - 1, item.end, expires - 1, expires}) {
+                check(CourseIslandWindow.eligible(item, now, retention, false, false) == (now < expires),
+                        "Losing the native receipt does not change the lesson deadline");
+                check(!CourseIslandWindow.eligible(item, now, retention, true, true), "Dismissed capsule stays closed");
+            }
+        }
+        CourseOccurrence off = new CourseOccurrence("local", "table", 17, 55, START, item.end, START, "Math", "", "");
+        check(!CourseIslandWindow.eligible(off, START, 5, false, false), "No simulated reminder when disabled");
+        var delivery = new CourseIslandWindow.Delivery();
+        long t = 100;
+        for (int failure = 0; failure < 10; failure++) {
+            check(delivery.due("before", t), "Slow SDK connection must continue retrying past four attempts");
+            delivery.failed(t, false);
+            check(!delivery.due("before", t) && delivery.next() > t && delivery.next() <= t + 60_000,
+                    "Repeated refreshes obey bounded backoff");
+            t = delivery.next();
+        }
+        delivery.accepted(t);
+        check(!delivery.due("before", t + 1) && delivery.due("running", t + 1), "Start wakes the same capsule");
+        delivery.accepted(t + 1);
+        check(delivery.due("running", t + 120_001), "A killed broker is contacted again with unchanged content");
+        delivery.failed(t + 120_001, true);
+        check(delivery.due("ended", t + 120_002), "Ending a course is never delayed by a retry timer");
+    }
+
+    private static void checkBreakStages() {
+        long m = 60000;
+        ZoneId zone = ZoneId.of("Asia/Shanghai");
+        long start = java.time.LocalDate.of(2026,11,25).atTime(8,0).atZone(zone).toInstant().toEpochMilli();
+        int[] opens={400,480,520,600,660}, closes={450,510,555,660,705};
+        long end=start+225*m;
+        CourseBreaks breaks=CourseBreaks.fromTable(start,end,zone,1,4,opens,closes);
+        check(breaks.labels("08:00","11:45").equals(java.util.List.of("08:00","课间","课间","11:45"))
+                && breaks.gaps().size()==2,"Only real gaps produce interior dots");
+        check(breaks.equals(CourseBreaks.decode(start,end,breaks.encode())),"IPC preserves complete break schedule and equality");
+        check(breaks.fraction(start,end,start)==0 && breaks.fraction(start,end,end)==1,"Staged endpoints");
+        check(Math.abs(breaks.fraction(start,end,start+35*m)-1f/3)<0.00001f,"First unequal period reaches first recess dot");
+        check(Math.abs(breaks.fraction(start,end,start+97*m+30000)-2f/3)<0.00001f,"Longer break reaches second dot");
+        float previous=-1;
+        for(long t=start;t<=end;t+=m) {
+            float progress=breaks.fraction(start,end,t);
+            check(progress>previous,"Fill never stops or reverses, including during a break"); previous=progress;
+        }
+        check(breaks.timing(start,end,start+30*m).equals("课间休息 · 10 分钟后上第 3 节"),"Recess begins at previous period end");
+        check(breaks.timing(start,end,start+40*m).startsWith("上课中"),"Next period starts at exact boundary");
+        check(breaks.nextChange(start+25*m)==start+30*m && breaks.nextChange(start+39*m+123)==start+40*m,"Wake at both ends of a break");
+        check(!CourseBreaks.fromTable(start,end,zone,1,1,opens,closes).staged(),"No stages on single lessons");
+        check(!CourseBreaks.fromTable(start+m,end,zone,1,4,opens,closes).staged(),"Stale node numbers are not a timetable");
+        check(!CourseBreaks.fromTable(start,end-m,zone,1,4,opens,closes).staged(),"Event ending at a different time is not staged");
+        check(!CourseBreaks.fromTable(start,end,zone,1,8,opens,closes).staged(),"Ignore out-of-range nodes");
+        check(CourseBreaks.decode(start,end,new long[]{start+4*m,end+1,3})==CourseBreaks.NONE
+                && CourseBreaks.decode(start,end,null)==CourseBreaks.NONE,"Malformed or older payload keeps ordinary progress");
+        int[] a=new int[16], b=new int[16];
+        for(int i=0;i<a.length;i++) {a[i]=480+2*i;b[i]=a[i]+1;}
+        check(CourseBreaks.fromTable(start,start+29*m,zone,0,14,a,b).labels("a","b").size()==16,"Maximum SDK stages");
+        CourseBreaks tooMany=CourseBreaks.fromTable(start,start+31*m,zone,0,15,a,b);
+        check(!tooMany.staged() && tooMany.timing(start,start+31*m,start+m).startsWith("课间休息"),"Beyond SDK cap, preserve actual break text");
     }
 
     public static void main(String[] args) {

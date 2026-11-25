@@ -47,14 +47,11 @@ final class CurriculumIo {
 
     // ── 导出 ────────────────────────────────────────────────────────────────
 
-    /**
-     * 动作选择面板统一入口：**优先用宿主 COUI 底部面板**（和「创建课表」sheet 同一个容器、
-     * 同一批颜色/字号/关闭图标），宿主控件取不到时才回落到模块自绘的 PickerSheet。
-     */
     private static void options(Activity a, String title, List<String> opts,
-                               PickerSheet.OnPick<Integer> cb) {
-        if (HostSheet.show(a, title, opts, cb::onPick)) return;
-        PickerSheet.show(a, title, opts, -1, cb);
+                                java.util.function.IntConsumer cb) {
+        if (!TransferUi.alive(a)) return;
+        try { TransferUi.choose(a, title, opts, -1, index -> { if (index != null) cb.accept(index); }); }
+        catch (Exception e) { TransferUi.failed(a, e); }
     }
 
     static void showExportMenu(Activity a) {
@@ -118,7 +115,9 @@ final class CurriculumIo {
         opts.add("从文件导入（选 .ics / .xlsx）");
         opts.add("从「下载」目录直接选（推荐）");
         opts.add("粘贴课表 HTML / 表单直连（高级）");
+        opts.add("拾光课表（教务系统导入）");
         options(a, "导入课表", opts, idx -> {
+            if (idx == 4) { ShiguangImport.open(a); return; }
             if (idx == 2) { pickFromDownloads(a); return; }
             // 用 */* + EXTRA_MIME_TYPES：不少文件管理器会把 .ics 归到「其他」，
             // 只给 text/calendar 时会显示"无文件"（实测 OPPO 文件选择器如此）。
@@ -395,8 +394,7 @@ final class CurriculumIo {
         init.putIfAbsent(JwClient.K_UFIELD, "username");
         init.putIfAbsent(JwClient.K_PFIELD, "password");
 
-        List<String> opts = new ArrayList<>();
-        PromptSheet.show(a, "从教务系统导入", fields, init, values -> {
+        TransferUi.formAction(a, "从教务系统导入", fields, init, values -> {
             jwConfig = new LinkedHashMap<>(values);
             toast(a, "正在抓取教务系统…");
             new Thread(() -> {
@@ -417,7 +415,7 @@ final class CurriculumIo {
     private static void showPasteJw(Activity a) {
         List<String[]> fields = new ArrayList<>();
         fields.add(new String[]{ "html", "把课表页 HTML 粘贴到这里" });
-        PromptSheet.show(a, "粘贴课表 HTML", fields, null, values -> {
+        TransferUi.formAction(a, "粘贴课表 HTML", fields, null, values -> {
             String html = values.get("html");
             if (html == null || html.trim().isEmpty()) return;
             new Thread(() -> {
@@ -430,29 +428,42 @@ final class CurriculumIo {
     // ── 预览 → 写入 ──────────────────────────────────────────────────────────
 
     static void preview(Activity a, List<Course> list, String source) {
-        if (a == null) return;
+        if (!TransferUi.alive(a)) return;
+        new Thread(() -> {
+            TableCtx frozen = TableCtx.load(a);
+            UI.post(() -> preview(a, list, source, frozen, ""));
+        }, "course-import-preview").start();
+    }
+
+    static void preview(Activity a, List<Course> list, String source, TableCtx frozen, String note) {
+        if (!TransferUi.alive(a)) return;
         if (list == null || list.isEmpty()) {
             toast(a, source + "：没解析出课程");
             return;
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Math.min(3, list.size()); i++) {
-            if (i > 0) sb.append('\n');
-            sb.append(list.get(i).toString());
-        }
-        Logx.i(T, "preview " + source + " n=" + list.size() + "\n" + sb);
+        if (frozen.calendarId <= 0) { toast(a, "请先选择目标课表"); return; }
         List<String> opts = new ArrayList<>();
         opts.add("替换现有课表（" + list.size() + " 门）");
         opts.add("追加到现有课表（" + list.size() + " 门）");
         opts.add("新建一张课表后导入（" + list.size() + " 门）");
-        new Thread(() -> {
-            TableCtx frozen = TableCtx.load(a);
-            UI.post(() -> options(a, "导入 " + list.size() + " 门课 · " + source + " → " + frozen.tableName, opts, idx -> {
+        try {
+            String summary = source + " · 共 " + list.size() + " 门\n目标课表：" + frozen.tableName
+                    + (note.isEmpty() ? "" : "\n" + note);
+            StringBuilder sample = new StringBuilder(summary);
+            for (int i = 0; i < Math.min(3, list.size()); i++) {
+                Course c = list.get(i);
+                sample.append("\n").append(c.name).append(" · ").append(Course.dayName(c.day))
+                        .append(" 第").append(c.startNode + 1);
+                if (c.endNode != c.startNode) sample.append("–").append(c.endNode + 1);
+                sample.append("节");
+            }
+            TransferUi.choose(a, "导入预览", sample.toString(), opts, -1, idx -> {
+                if (idx == null) return;
                 CourseMutations.Mode mode = idx == 0 ? CourseMutations.Mode.REPLACE
                         : idx == 1 ? CourseMutations.Mode.APPEND : CourseMutations.Mode.NEW_TABLE;
                 CourseMutations.importCourses(a, frozen, list, mode, "课程表 " + (frozen.courseCalIds.size() + 1), null);
-            }));
-        }, "course-import-preview").start();
+            });
+        } catch (Exception e) { TransferUi.failed(a, e); }
     }
 
     /**
