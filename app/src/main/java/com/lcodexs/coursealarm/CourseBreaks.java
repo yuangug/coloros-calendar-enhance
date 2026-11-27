@@ -10,9 +10,7 @@ import java.util.List;
 
 /** Actual recess intervals inside one occurrence; no inference from course name or duration. */
 record CourseBreaks(List<Gap> gaps) {
-    record Gap(long from, long until, int nextPeriod) {
-        long marker() { return from + (until - from) / 2; }
-    }
+    record Gap(long from, long until, int nextPeriod) { }
     static final CourseBreaks NONE = new CourseBreaks(Collections.emptyList());
     private static final int MAX_STAGE_GAPS = 14; // Both endpoint labels count towards the SDK's 16.
 
@@ -69,20 +67,21 @@ record CourseBreaks(List<Gap> gaps) {
         return labels;
     }
 
-    // The host places stage dots at equal intervals. Interpolate within each interval so
-    // the fill crosses each dot during its actual break, even when sections differ in length.
+    // The SDK spaces its dots evenly. Each teaching interval fills one segment;
+    // the entire recess maps to the same dot, including both boundary instants.
     float fraction(long start, long end, long now) {
         if (!staged()) return CourseOccurrence.progress(start, end, now) / 10000f;
         if (now <= start) return 0f;
         if (now >= end) return 1f;
-        long left = start; int index = 0;
+        int segments = gaps.size() + 1, index = 0;
+        long left = start, right = end;
         for (Gap gap : gaps) {
-            long right = gap.marker();
-            if (now < right) break;
-            left = right; index++;
+            if (now < gap.from) { right = gap.from; break; }
+            index++;
+            if (now <= gap.until) return (float) index / segments;
+            left = gap.until;
         }
-        long right = index == gaps.size() ? end : gaps.get(index).marker();
-        return (float)((index + (double)(now - left) / (right - left)) / (gaps.size() + 1));
+        return (float)((index + (double)(now - left) / (right - left)) / segments);
     }
 
     String timing(long start, long end, long now) {

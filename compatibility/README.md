@@ -1,5 +1,16 @@
 # 日历宿主兼容性
 
+本目录按**宿主版本、功能和验证方式**记录结果。DEX 和资源检查能确认接口存在；隔离 ART 检查会加载 APK；只有在已安装的日历中完成操作才记作实机 UI 验证。
+
+| 功能或版本 | 证据与边界 |
+| --- | --- |
+| 0.10.2 拾光导入 | 17.3.70、17.6.20、17.8.0 各通过 506 项 DEX 契约及 48 项资源检查。上游脚本和转换使用本地样例；这不能证明每所学校都能登录。见[导入验证记录](../docs/shiguang-import-ui.md)。 |
+| 0.10.2 连堂课进度 | 在安装 17.8.0 的手机上用星河岛 SDK 构造过单节与连堂卡片。卡片构造和通知实际送达是两项验证，见[发布记录](../CHANGELOG-0.10.2.md)和[实时活动检查](../tools/livecheck/README.md)。 |
+| 0.10.3 厦门工学院（XIT） | 适配复用学期理论课表解析，开学日期、单节及连堂作息有离线检查。未计为学校真实登录或三版日历的 UI 实测。复现入口见[工具索引](../tools/README.md)。 |
+| 0.9.10 删除和撤回 | [分宿主结果](verification-0.9.10-2026-11-18.json)记录了三版接口与隔离事务检查，实际安装的宿主为 17.8.0。 |
+
+以下保留早期检查结果。数字对应各节标注的版本，不能累加当作当前版本的通过数。
+
 ## 0.9.9 拖动调课验证（2026-11-18）
 
 恢复实机测试后的最终检查使用 `192.168.137.143:5555`，实际安装宿主为 **17.8.0（17008000）**。本轮未安装或降级系统日历；其余两个提供的 APK 仅加载到独立 ART 进程。
@@ -68,21 +79,20 @@
 
 ## 复现
 
-在仓库根目录使用 Python 3.10+ 与 Android SDK aapt2：
+从 **CourseAlarm 工程根目录**运行，使用 Python 3.10+ 和 Android SDK 的 `aapt2`。将 APK 路径与 build-tools 版本替换为本机实际值：
 
 ```powershell
-python CourseAlarm/tools/verify_host_apks.py `
-  --apk 'C:/Users/summer/Downloads/Mobile Devices/日历_17.3.70.apk' `
-  --apk 'C:/Users/summer/Downloads/Mobile Devices/日历_17.6.20.apk' `
-  --apk 'C:/Users/summer/Downloads/Mobile Devices/日历-17.8.0(17008000).apk' `
-  --aapt2 toolchain/android-sdk/build-tools/36.1.0/aapt2.exe `
-  --output artifacts/calendar-compat-20261117/static-report.json
+python tools/verify_host_apks.py `
+  --apk 'C:/apks/calendar-17.3.70.apk' `
+  --apk 'C:/apks/calendar-17.6.20.apk' `
+  --apk 'C:/apks/calendar-17.8.0.apk' `
+  --aapt2 "$env:ANDROID_HOME/build-tools/36.1.0/aapt2.exe" `
+  --output build/compatibility/static-report.json
 ```
 
 在 CourseAlarm 目录构建验证包：
 
 ```powershell
-$env:JAVA_HOME='D:/lsp模块/toolchain/jdk21'
 ./gradlew.bat :app:assembleRelease -PcoursealarmVerification --console=plain
 ```
 
@@ -90,8 +100,8 @@ $env:JAVA_HOME='D:/lsp模块/toolchain/jdk21'
 
 ```powershell
   --probe '验证包的路径.apk' `
-  --adb toolchain/android-sdk/platform-tools/adb.exe `
-  --serial 192.168.137.143:5555
+  --adb "$env:ANDROID_HOME/platform-tools/adb.exe" `
+  --serial '<实际设备序列号>'
 ```
 
 正式发布重新执行 `:app:assembleRelease`，不传 `-PcoursealarmVerification`。检查 DEX 不含 `DeviceVerification` 与 `HostCompatibilityProbe`，再验证签名。验证包含设备测试入口，仅作开发验证，不能作为正式包安装。

@@ -67,6 +67,7 @@ public final class CourseDndPermissionActivity extends Activity {
         if (!status.getBoolean("success") || !status.getBoolean("supported")) {
             end(status.getString("error", "当前系统不支持课程免打扰")); return;
         }
+        if (token != null && CourseDndClient.active(status)) { end("免打扰已开启"); return; }
         boolean needsPermissions = token == null || status.getBoolean("requestedEnable", true);
         if (needsPermissions && !status.getBoolean("access")) {
             if (askedPolicy) { end("尚未授予免打扰权限，未开启课程免打扰"); return; }
@@ -99,8 +100,9 @@ public final class CourseDndPermissionActivity extends Activity {
                     catch (android.app.PendingIntent.CanceledException error) { end("课程操作已过期，请重新点击免打扰"); }
                 }
                 else if (token == null) end("课程免打扰权限已就绪");
-                else if (result.getBoolean("sessionActive")) end("已开启本次课程免打扰，下课时自动结束");
-                else end(result.getBoolean("systemActive") ? "已结束本次免打扰，其他免打扰设置保持生效" : "已结束本次课程免打扰");
+                else if (CourseDndClient.active(result)) end("免打扰已开启");
+                else if (result.getBoolean("reserved")) end("已预约免打扰，上课时开启");
+                else end("已取消本次免打扰预约");
             });
         });
     }

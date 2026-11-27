@@ -6,19 +6,15 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.res.ColorStateList;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -150,9 +146,10 @@ final class CourseNativeLiveCard {
         Bundle data;
         FrameLayout divider;
         View nativeLine;
-        LinearLayout sectionRoot, actionRow;
+        LinearLayout sectionRoot;
+        CourseCardActionRow actionRow;
         ProgressLine progress;
-        TextView button;
+        View button;
         final Map<View, Integer> hidden = new WeakHashMap<>();
         String reported = "";
         int anchorAttempts, stateAttempts;
@@ -277,26 +274,44 @@ final class CourseNativeLiveCard {
                 progress.color = textColor(root, foreground(context), button);
             } else removeProgress();
 
-            boolean showAction = data.getBoolean("dndEnabled") && action(data) != null
+            boolean active = data.getBoolean("dndActive") || data.getBoolean("otherDnd");
+            boolean showAction = data.getBoolean("dndEnabled") && (active || action(data) != null)
                     && System.currentTimeMillis() < data.getLong("end");
             if (!showAction) removeAction();
             else try {
-                if (actionRow == null) {
-                    actionRow = new LinearLayout(context);
-                    actionRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-                    actionRow.setPadding(0, dp(context, 6), 0, 0);
-                    button = nativeButton(context);
-                    button.setOnClickListener(v -> sendAction());
-                    actionRow.addView(button, new LinearLayout.LayoutParams(-2, dp(context, 40)));
-                    sectionRoot.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+                View target = actionTarget();
+                if (target == null) {
+                    removeAction();
+                    if (++anchorAttempts <= 3) { main.removeCallbacks(mountLater); main.postDelayed(mountLater, 200); }
+                } else {
+                    if (actionRow == null || !actionRow.containsStatus(target) || (button instanceof CourseShadeCapsule) == active) {
+                        removeAction();
+                        if (active) {
+                            TextView state = new TextView(context);
+                            state.setSingleLine(true); state.setIncludeFontPadding(false);
+                            state.setGravity(Gravity.CENTER);
+                            View b4 = findNamed(target, "tv_b4_required");
+                            if (b4 instanceof TextView sample) state.setTypeface(sample.getTypeface());
+                            // WakeUp overrides the unbound B4 placeholder (28dp) with fontSize3.
+                            // The Seedling text binder applies that token as 14 DIP, including on B4.
+                            state.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
+                            button = state;
+                        } else {
+                            View slot = findNamed(target, "btn_e16");
+                            if (slot == null) throw new NoSuchMethodException("WakeUp E16 slot unavailable");
+                            button = new CourseShadeCapsule(root, slot);
+                            button.setOnClickListener(v -> sendAction());
+                        }
+                        actionRow = new CourseCardActionRow(sectionRoot, target, button);
+                        actionRow.mount();
+                    }
+                    button.setEnabled(true);
+                    String label = CourseDndClient.label(active, data.getBoolean("dndReserved"),
+                            System.currentTimeMillis() < data.getLong("start"));
+                    int ink = textColor(root, foreground(context), button);
+                    if (button instanceof CourseShadeCapsule capsule) capsule.show(label, ink);
+                    else if (button instanceof TextView state) { state.setText(label); state.setTextColor(ink); }
                 }
-                button.setEnabled(true);
-                button.setText(data.getBoolean("dndActive") ? "结束本次免打扰" : "开启免打扰");
-                int color = textColor(root, foreground(context), button);
-                button.setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled}, new int[]{}},
-                        new int[]{(color & 0xffffff) | 0x66000000, color}));
-                if (button instanceof CardAction) ((CardAction) button).tint(color);
-                button.setContentDescription(button.getText() + (data.getBoolean("otherDnd") ? "，系统免打扰已开启" : ""));
             } catch (Exception | LinkageError error) {
                 removeAction();
                 report(progress != null, progress != null ? "native_progress_only" : "native_action_unavailable");
@@ -306,6 +321,20 @@ final class CourseNativeLiveCard {
             report(progress != null || button != null, progress != null
                     ? (button != null ? "native_progress_and_action" : "native_progress_only")
                     : (button != null ? "native_action_only" : "native_controls_disabled"));
+        }
+
+        View actionTarget() {
+            if (nativeLine == null) {
+                View extension = findNamed(sectionRoot, "section_extension");
+                return extension != null && extension.getVisibility() == View.VISIBLE ? extension : null;
+            }
+            // The signed UPK places eventDesc2 after DotLineView, sometimes in a custom view.
+            for (int i = sectionRoot.indexOfChild(nativeLine) + 1; i < sectionRoot.getChildCount(); i++) {
+                View child = sectionRoot.getChildAt(i);
+                if (child == actionRow && actionRow.getChildCount() > 0) return actionRow.getChildAt(0);
+                if (child != progress && child.getVisibility() == View.VISIBLE) return child;
+            }
+            return null;
         }
 
         void hide(View view) {
@@ -358,7 +387,7 @@ final class CourseNativeLiveCard {
             hidden.clear();
         }
         void removeAction() {
-            if (actionRow != null && actionRow.getParent() instanceof ViewGroup) ((ViewGroup) actionRow.getParent()).removeView(actionRow);
+            if (actionRow != null) actionRow.release();
             actionRow = null; button = null;
         }
         void unmount() {
@@ -391,36 +420,6 @@ final class CourseNativeLiveCard {
             String creator = action.getCreatorPackage();
             return CALENDAR.equals(creator) || "io.github.yuangug.coursealarm".equals(creator) ? action : null;
         } catch (RuntimeException ignored) { return null; }
-    }
-
-    private static TextView nativeButton(Context context) {
-        int style = id(context, "attr", "couiTinyTranslateButtonColorStyle");
-        TextView button = null;
-        if (style != 0) try {
-            button = (TextView) Class.forName("com.coui.appcompat.button.COUIButton", false, context.getClassLoader())
-                    .getConstructor(Context.class, AttributeSet.class, int.class).newInstance(context, null, style);
-        } catch (ReflectiveOperationException | LinkageError | RuntimeException ignored) { }
-        if (button == null) button = new CardAction(context);
-        button.setAllCaps(false);
-        button.setGravity(Gravity.CENTER);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        button.setPadding(dp(context, 16), 0, dp(context, 16), 0);
-        button.setMinHeight(0); button.setMinimumHeight(0); button.setMinWidth(0); button.setMinimumWidth(0);
-        return button;
-    }
-
-    private static final class CardAction extends android.widget.Button {
-        private Integer tint;
-        CardAction(Context context) { super(context); setStateListAnimator(null); }
-        void tint(int color) {
-            if (tint != null && tint == color) return;
-            tint = color;
-            int rgb = color & 0xffffff;
-            GradientDrawable surface = new GradientDrawable();
-            surface.setColor(rgb | 0x16000000);
-            surface.setCornerRadius(dp(getContext(), 20));
-            setBackground(new RippleDrawable(ColorStateList.valueOf(rgb | 0x29000000), surface, null));
-        }
     }
 
     private static final class ProgressLine extends View implements Runnable {

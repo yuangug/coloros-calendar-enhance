@@ -302,6 +302,12 @@ final class CourseLiveHooks {
                     data.put("courseActivityVersion", 1).put("courseStartTime", item.start).put("courseEndTime", item.end)
                             .put("courseActivityDeadline", item.expiresAt(state.retainMinutes))
                             .put("courseProgressEnabled", state.astraEnabled && state.showProgress);
+                    if ((state.enabled || state.astraEnabled || state.keepDuringCourse)
+                            && !Boolean.TRUE.equals(Ref.callName(chain.getArg(2), "isForceAlert"))) {
+                        data.put("courseAod", true);
+                        // Calendar leaves the initial countdown empty until the first UPDATE.
+                        if (data == initial && second != null) data.put("eventDesc2", second.optString("eventDesc2"));
+                    }
                     if (state.astraEnabled && state.showProgress)
                         data.put("courseProgress", item.progress(System.currentTimeMillis()));
                     if (state.astraEnabled)

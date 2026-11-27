@@ -25,6 +25,9 @@ final class ShiguangSession {
 
     ShiguangSession(JwWebView screen) { this.screen = screen; }
     void start(Uri site) {
+        if (screen.source.adapter.localXit && !"https://xgjwxt.xit.edu.cn".equals(site.toString())) {
+            fail("请先登录并返回厦门工学院教务系统的课表页"); return;
+        }
         origin = site;
         String token = UUID.randomUUID().toString();
         arm();
@@ -56,6 +59,12 @@ final class ShiguangSession {
             if (raw == null || raw.length() > 420000) throw new IllegalArgumentException("拾光返回的数据过大或为空");
             JSONObject msg = new JSONObject(raw);
             String type = msg.getString("type");
+            if (screen.source.adapter.localXit) {
+                if ("error".equals(type)) { fail(msg.getString("message")); return; }
+                if (!"xit".equals(type)) throw new IllegalArgumentException("学校课表响应无效");
+                completed = true; ui.removeCallbacks(timeout);
+                finishXit(msg); return;
+            }
             if ("ready".equals(type)) {
                 if (!started) {
                     started = true;
@@ -123,6 +132,22 @@ final class ShiguangSession {
                 });
             } catch (Exception e) { ui.post(() -> { if (live()) fail(e.getMessage()); }); }
         }, "course-shiguang-preview").start();
+    }
+    private void finishXit(JSONObject data) {
+        new Thread(() -> {
+            try {
+                JwParser.ParseResult parsed = JwParser.parse(data.getString("table"));
+                if (parsed.courses.isEmpty()) throw new IllegalArgumentException("没有解析到课程，请打开学期理论课表");
+                TableCtx frozen = TableCtx.loadForAlarm(screen.activity);
+                TableCtx target = TableCtx.fromMetadata(frozen.calendarId, frozen.tableName, frozen.tableJson);
+                XitTiming draft = new XitTiming(data, target.periodStart, target.periodEnd, parsed.courses);
+                ui.post(() -> {
+                    if (!live()) return;
+                    screen.close(); screen.finishSelection.run();
+                    XitImportPreview.open(screen.activity, frozen, parsed, draft);
+                });
+            } catch (Exception e) { ui.post(() -> { if (live()) fail(e.getMessage()); }); }
+        }, "course-xit-preview").start();
     }
     private void fail(String reason) {
         if (closed) return;

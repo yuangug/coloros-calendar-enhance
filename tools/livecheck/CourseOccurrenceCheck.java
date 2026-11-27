@@ -219,12 +219,19 @@ public final class CourseOccurrenceCheck {
                 && breaks.gaps().size()==2,"Only real gaps produce interior dots");
         check(breaks.equals(CourseBreaks.decode(start,end,breaks.encode())),"IPC preserves complete break schedule and equality");
         check(breaks.fraction(start,end,start)==0 && breaks.fraction(start,end,end)==1,"Staged endpoints");
-        check(Math.abs(breaks.fraction(start,end,start+35*m)-1f/3)<0.00001f,"First unequal period reaches first recess dot");
-        check(Math.abs(breaks.fraction(start,end,start+97*m+30000)-2f/3)<0.00001f,"Longer break reaches second dot");
+        for (int[] gap : new int[][]{{30,40,1}, {75,120,2}}) {
+            long from=start+gap[0]*m, until=start+gap[1]*m;
+            float dot=gap[2]/3f;
+            check(breaks.fraction(start,end,from-1000)<dot && breaks.fraction(start,end,until+1000)>dot,
+                    "Approach the dot before recess and leave it after the next lesson starts");
+            for (long t : new long[]{from,from+1,(from+until)/2,until-1,until})
+                check(breaks.fraction(start,end,t)==dot,"Hold the exact stage dot throughout recess");
+        }
         float previous=-1;
         for(long t=start;t<=end;t+=m) {
             float progress=breaks.fraction(start,end,t);
-            check(progress>previous,"Fill never stops or reverses, including during a break"); previous=progress;
+            boolean recess = t>start+30*m && t<=start+40*m || t>start+75*m && t<=start+120*m;
+            check(recess ? progress==previous : progress>previous,"Only recess pauses stage progress"); previous=progress;
         }
         check(breaks.timing(start,end,start+30*m).equals("课间休息 · 10 分钟后上第 3 节"),"Recess begins at previous period end");
         check(breaks.timing(start,end,start+40*m).startsWith("上课中"),"Next period starts at exact boundary");

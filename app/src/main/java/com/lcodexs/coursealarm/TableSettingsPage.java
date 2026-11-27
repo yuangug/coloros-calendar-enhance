@@ -37,6 +37,9 @@ final class TableSettingsPage {
     private static final String SWITCH = "lspx_table_drag_enabled";
     private static final String FINISH_WEEK = "lspx_table_finish_week";
     private static final String PERMISSION = "lspx_live_permission";
+    private static final String BACKGROUND = "lspx_live_background";
+    private static final String SYSTEM_SCOPE = "lspx_live_system_scope";
+    private static final String RECONNECT = "lspx_live_reconnect";
     private static final String COMPATIBILITY = "lspx_live_compatibility";
     private static final String LIVE_STATUS = "lspx_live_status";
     private static final String TEST_NOTICE = "lspx_live_test_notice";
@@ -59,7 +62,10 @@ final class TableSettingsPage {
         CourseLiveSettings.State live;
         Bundle dnd;
         Bundle scope;
-        WeakReference<Object> testCategory;
+        final List<WeakReference<Object>> testCategories = new ArrayList<>();
+        Boolean backgroundExempt;
+        int scopeRequest;
+        boolean scopePending;
 
         Binding(Activity activity) {
             this.activity = new WeakReference<>(activity);
@@ -191,17 +197,9 @@ final class TableSettingsPage {
             invoke(screen, "addPreference", liveCategory);
             addSwitch(activity, host, liveCategory, binding, CourseLiveSettings.RETAIN_ON_CLICK,
                     "点击卡片后保留", "查看课程详情后继续显示，仍可主动关闭本次卡片");
-            Object tests = Class.forName("com.coui.appcompat.preference.COUIPreferenceCategory", false, host)
-                    .getConstructor(Context.class, AttributeSet.class).newInstance(activity, null);
-            invoke(tests, "setKey", "lspx_course_live_experiments");
-            invoke(tests, "setTitle", "测试功能");
-            invoke(tests, "setVisible", false); // Reveal with the saved values already bound.
-            binding.testCategory = new WeakReference<>(tests);
-            invoke(screen, "addPreference", tests);
+            Object tests = testGroup(activity, host, screen, binding, "experiments", "测试功能 · 显示方式");
             addSwitch(activity, host, tests, binding, CourseLiveSettings.ENABLED,
                     "启用课程实时活动增强", "增强通知栏中的原生日历实时活动；需要系统界面作用域");
-            addSwitch(activity, host, tests, binding, CourseLiveSettings.KEEP_DURING_COURSE,
-                    "从课前提醒持续显示到下课", "按「课程提醒」设置的时间持续显示实时活动和流体云；手动关闭后本节不再显示");
             addSwitch(activity, host, tests, binding, CourseLiveSettings.ASTRA_ENABLED,
                     "启用星河岛增强", "独立接管课程胶囊并调用星河岛显示展开卡片");
             CourseAstraStyle[] styles = CourseAstraStyle.values();
@@ -210,38 +208,64 @@ final class TableSettingsPage {
                     Arrays.stream(styles).map(style -> style.label).toArray(String[]::new),
                     Arrays.stream(styles).map(style -> style.id).toArray(String[]::new),
                     CourseAstraStyle.TIMETABLE.id);
-            addSwitch(activity, host, tests, binding, CourseLiveSettings.SHOW_PROGRESS,
-                    "显示课程时长进度", "按上课至下课的完整时间计算，包含课间休息");
-            addSwitch(activity, host, tests, binding, CourseLiveSettings.SHOW_DND_BUTTON,
-                    "显示免打扰按钮", "在支持的实时活动通知中显示，下课时结束本次免打扰");
-            addSwitch(activity, host, tests, binding, CourseLiveSettings.AUTO_DND,
-                    "上课时自动开启免打扰", "仅管理本模块开启的免打扰，下课时自动结束");
-            addChoiceMenu(activity, host, tests, binding, CourseLiveSettings.RETAIN_MINUTES,
+            Object display = testGroup(activity, host, screen, binding, "display", "课程显示");
+            addSwitch(activity, host, display, binding, CourseLiveSettings.KEEP_DURING_COURSE,
+                    "从课前提醒持续显示到下课", "从本课表的课前提醒开始；手动关闭后本节不再显示");
+            addSwitch(activity, host, display, binding, CourseLiveSettings.SHOW_PROGRESS,
+                    "显示课程时长进度", "星河岛展开卡在课间停在圆点，下一节开始后继续");
+            addChoiceMenu(activity, host, display, binding, CourseLiveSettings.RETAIN_MINUTES,
                     "下课后保留时间", "显示“课程已结束”后移除本次卡片",
                     new String[]{"立即移除", "1 分钟", "5 分钟", "10 分钟"},
                     new String[]{"0", "1", "5", "10"}, "5");
-            Object liveStatus = newPreference(activity, host, "COUIPreference", binding, LIVE_STATUS,
-                    "运行状态", "正在读取状态");
-            listener(host, liveStatus, "setOnPreferenceClickListener", args -> {
-                if (binding.live != null && binding.live.astraEnabled)
-                    CourseLiveCoordinator.connectIsland(activity, binding.identity);
-                return true;
-            });
-            invoke(tests, "addPreference", liveStatus);
-            addMenu(activity, host, tests, binding, PERMISSION,
+            Object quiet = testGroup(activity, host, screen, binding, "quiet", "课程免打扰");
+            addSwitch(activity, host, quiet, binding, CourseLiveSettings.SHOW_DND_BUTTON,
+                    "显示免打扰按钮", "课前可预约，课中可开启；免打扰已开启时仅显示状态");
+            addSwitch(activity, host, quiet, binding, CourseLiveSettings.AUTO_DND,
+                    "上课时自动开启免打扰", "仅管理本模块开启的免打扰，下课时自动结束");
+            addMenu(activity, host, quiet, binding, PERMISSION,
                     "免打扰权限", "正在读取权限状态", () -> openPermission(binding, false));
-            addMenu(activity, host, tests, binding, COMPATIBILITY,
+            Object access = testGroup(activity, host, screen, binding, "access", "后台运行与状态");
+            addMenu(activity, host, access, binding, BACKGROUND, "允许模块后台运行",
+                    "打开模块的系统耗电设置", () -> openBackground(binding));
+            addMenu(activity, host, access, binding, SYSTEM_SCOPE, "系统界面作用域",
+                    "供通知栏的原生实时活动使用", () -> requestScope(binding));
+            addMenu(activity, host, access, binding, RECONNECT, "重新连接星河岛",
+                    "流体云缺失时，重新连接模块并登记课程提醒时间",
+                    () -> CourseLiveCoordinator.connectIsland(activity, binding.identity));
+            Object liveStatus = newPreference(activity, host, "COUIPreference", binding, LIVE_STATUS, "运行状态", "正在读取状态");
+            invoke(liveStatus, "setSelectable", false);
+            invoke(access, "addPreference", liveStatus);
+            addMenu(activity, host, access, binding, COMPATIBILITY,
                     "系统卡片适配状态", "正在检查当前系统支持情况", () -> showCompatibility(binding));
             Object notice = newPreference(activity, host, "COUIPreference", binding, TEST_NOTICE,
                     null, "测试功能，不保证可用，请谨慎开启");
             invoke(notice, "setSelectable", false);
             invoke(notice, "setEnabled", true);
-            invoke(tests, "addPreference", notice);
+            invoke(access, "addPreference", notice);
             activity.setTitle(TITLE);
             refresh(binding);
         } catch (Exception error) {
             failed(activity, "课表设置不可用", error);
             activity.finish();
+        }
+    }
+
+    private static Object testGroup(Activity activity, ClassLoader host, Object screen, Binding binding,
+                                    String key, String title) throws Exception {
+        Object group = Class.forName("com.coui.appcompat.preference.COUIPreferenceCategory", false, host)
+                .getConstructor(Context.class, AttributeSet.class).newInstance(activity, null);
+        invoke(group, "setKey", "lspx_course_live_" + key);
+        invoke(group, "setTitle", title);
+        invoke(group, "setVisible", false);
+        binding.testCategories.add(new WeakReference<>(group));
+        invoke(screen, "addPreference", group);
+        return group;
+    }
+
+    private static void showTestGroups(Binding binding, boolean visible) throws Exception {
+        for (WeakReference<Object> reference : binding.testCategories) {
+            Object group = reference.get();
+            if (group != null) invoke(group, "setVisible", visible);
         }
     }
 
@@ -255,9 +279,8 @@ final class TableSettingsPage {
                 CourseLiveSettings.setShowExperiments(activity, visible);
                 activity.runOnUiThread(() -> {
                     if (activity.isDestroyed() || activity.isFinishing()) return;
-                    Object category = binding.testCategory.get();
-                    if (!visible && category != null) {
-                        try { invoke(category, "setVisible", false); }
+                    if (!visible) {
+                        try { showTestGroups(binding, false); }
                         catch (Exception error) { failed(activity, "测试配置显示失败", error); }
                     }
                     if (visible) refresh(binding);
@@ -283,6 +306,7 @@ final class TableSettingsPage {
                 boolean testVisible = CourseLiveSettings.showExperiments(activity);
                 Bundle dnd = testVisible ? CourseDndClient.status(activity) : Bundle.EMPTY;
                 Bundle scope = testVisible ? CourseSystemUiScope.status(activity) : Bundle.EMPTY;
+                Boolean exempt = testVisible ? CourseBackgroundActivity.exempt(activity) : null;
                 activity.runOnUiThread(() -> {
                     if (!current(binding, generation)) return;
                     binding.table = state;
@@ -290,9 +314,9 @@ final class TableSettingsPage {
                     binding.live = live;
                     binding.dnd = dnd;
                     binding.scope = scope;
+                    binding.backgroundExempt = exempt;
                     update(binding);
-                    Object tests = binding.testCategory.get();
-                    if (tests != null) try { invoke(tests, "setVisible", testVisible && CourseLiveSettings.showExperiments(activity)); }
+                    try { showTestGroups(binding, testVisible && CourseLiveSettings.showExperiments(activity)); }
                     catch (Exception e) { failed(activity, "测试配置显示失败", e); }
                     if (binding.awaitingAutoPermission) {
                         binding.awaitingAutoPermission = false;
@@ -316,43 +340,46 @@ final class TableSettingsPage {
         if (activity == null || binding.saving || binding.invalid || binding.live == null) return false;
         binding.saving = true;
         int generation = ++binding.generation;
-        if (CourseLiveSettings.ENABLED.equals(key) && Boolean.TRUE.equals(value)) {
-            ResultReceiver callback = new ResultReceiver(new Handler(Looper.getMainLooper())) {
-                @Override protected void onReceiveResult(int resultCode, Bundle result) {
-                    if (!current(binding, generation) || !binding.saving) return;
-                    if (resultCode == 1 && result != null && result.getBoolean("success")) {
-                        persist(binding, activity, key, value, generation);
-                    } else scopeFailed(binding, activity, generation, result);
-                }
-            };
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (current(binding, generation) && binding.saving)
-                    scopeFailed(binding, activity, generation, null);
-            }, 100000);
-            WORK.execute(() -> {
-                Bundle accepted = CourseSystemUiScope.request(activity, callback);
-                if (!accepted.getBoolean("success")) activity.runOnUiThread(() -> {
-                    if (!current(binding, generation)) return;
-                    try {
-                        // No NEW_TASK: the module verifies the OS-provided caller package.
-                        activity.startActivityForResult(CourseSystemUiScope.bootstrap(activity, callback), 0x6CA1);
-                    } catch (RuntimeException error) {
-                        scopeFailed(binding, activity, generation, accepted);
-                    }
-                });
-            });
-            return true;
+        if (CourseLiveSettings.ENABLED.equals(key) && Boolean.FALSE.equals(value)) {
+            binding.scopeRequest++;
+            binding.scopePending = false;
         }
         persist(binding, activity, key, value, generation);
         return true;
     }
 
-    private static void scopeFailed(Binding binding, Activity activity, int generation, Bundle result) {
-        if (!current(binding, generation)) return;
-        binding.saving = false;
-        CurriculumIo.toast(activity, result == null ? "未获得系统界面作用域"
-                : result.getString("message", "未获得系统界面作用域"));
-        update(binding);
+    /** Authorization is a capability of this device, never the per-table enabled preference. */
+    private static void requestScope(Binding binding) {
+        Activity activity = binding.activity.get();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() || binding.invalid || binding.scopePending) return;
+        binding.scopePending = true;
+        int ticket = ++binding.scopeRequest;
+        Handler main = new Handler(Looper.getMainLooper());
+        Runnable timeout = () -> finishScope(binding, ticket, false, null);
+        ResultReceiver callback = new ResultReceiver(main) {
+            @Override protected void onReceiveResult(int code, Bundle result) {
+                main.removeCallbacks(timeout);
+                finishScope(binding, ticket, code == 1 && result != null && result.getBoolean("success"), result);
+            }
+        };
+        main.postDelayed(timeout, 100000);
+        WORK.execute(() -> {
+            Bundle accepted = CourseSystemUiScope.request(activity, callback);
+            if (!accepted.getBoolean("success")) activity.runOnUiThread(() -> {
+                if (ticket != binding.scopeRequest || activity.isFinishing() || activity.isDestroyed()) return;
+                try { activity.startActivityForResult(CourseSystemUiScope.bootstrap(activity, callback), 0x6CA1); }
+                catch (RuntimeException error) { callback.send(0, accepted); }
+            });
+        });
+    }
+
+    private static void finishScope(Binding binding, int ticket, boolean granted, Bundle result) {
+        Activity activity = binding.activity.get();
+        if (ticket != binding.scopeRequest || !binding.scopePending) return;
+        binding.scopePending = false;
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        CurriculumIo.toast(activity, granted ? "系统界面作用域已授权；如未生效，请重启系统界面"
+                : result == null ? "暂未确认系统界面作用域，可在设置中重试" : result.getString("message", "未获得系统界面作用域"));
         refresh(binding);
     }
 
@@ -389,7 +416,7 @@ final class TableSettingsPage {
                     if (!current(binding, generation)) return;
                     binding.saving = false;
                     if (CourseLiveSettings.ENABLED.equals(key) && Boolean.TRUE.equals(value))
-                        CurriculumIo.toast(activity, "系统界面作用域已授权；如未生效，请重启系统界面");
+                        requestScope(binding);
                     refresh(binding);
                 });
             } catch (Exception error) {
@@ -414,18 +441,21 @@ final class TableSettingsPage {
                 if (preference == null) continue;
                 String key = entry.getKey();
                 if (TEST_NOTICE.equals(key)) continue;
-                boolean status = PERMISSION.equals(key) || COMPATIBILITY.equals(key) || LIVE_STATUS.equals(key);
-                boolean parent = SWITCH.equals(key) || FINISH_WEEK.equals(key) || CourseLiveSettings.ENABLED.equals(key)
-                        || CourseLiveSettings.ASTRA_ENABLED.equals(key) || CourseLiveSettings.RETAIN_ON_CLICK.equals(key)
-                        || CourseLiveSettings.ASTRA_STYLE.equals(key) || CourseLiveSettings.KEEP_DURING_COURSE.equals(key);
+                boolean status = PERMISSION.equals(key) || COMPATIBILITY.equals(key) || LIVE_STATUS.equals(key)
+                        || BACKGROUND.equals(key) || SYSTEM_SCOPE.equals(key) || RECONNECT.equals(key);
                 boolean granted = binding.scope != null && binding.scope.getBoolean("success");
-                boolean anyLive = binding.live != null && (binding.live.astraEnabled || binding.live.enabled && granted);
-                boolean dependent = CourseLiveSettings.SHOW_PROGRESS.equals(key)
-                        || CourseLiveSettings.SHOW_DND_BUTTON.equals(key)
-                        || CourseLiveSettings.AUTO_DND.equals(key)
-                        || CourseLiveSettings.RETAIN_MINUTES.equals(key);
-                boolean retention = CourseLiveSettings.RETAIN_MINUTES.equals(key) && binding.live != null && binding.live.keepDuringCourse;
-                invoke(preference, "setEnabled", status || editable && (parent || dependent && anyLive || retention));
+                boolean enabled = editable;
+                if (editable) {
+                    boolean anyLive = binding.live.enabled || binding.live.astraEnabled;
+                    enabled = switch (key) {
+                        case CourseLiveSettings.ASTRA_STYLE, RECONNECT -> binding.live.astraEnabled;
+                        case SYSTEM_SCOPE -> binding.live.enabled && !binding.scopePending && !granted;
+                        case CourseLiveSettings.SHOW_PROGRESS, CourseLiveSettings.SHOW_DND_BUTTON, CourseLiveSettings.AUTO_DND -> anyLive;
+                        case CourseLiveSettings.RETAIN_MINUTES -> anyLive || binding.live.keepDuringCourse;
+                        default -> true;
+                    };
+                }
+                invoke(preference, "setEnabled", enabled);
                 if (binding.invalid && !status) {
                     invoke(preference, "setSummary", "课表已变化或不可读取，请返回后重新打开");
                 } else if (binding.live != null && !status) {
@@ -437,14 +467,28 @@ final class TableSettingsPage {
                     } else if (CourseLiveSettings.ASTRA_STYLE.equals(key)) {
                         invoke(preference, "setValue", binding.live.astraStyle.id);
                         textIfChanged(preference, "Assignment", binding.live.astraStyle.label);
-                    } else invoke(preference, "setChecked", binding.live.flag(key)
-                            && (!CourseLiveSettings.ENABLED.equals(key) || granted));
+                    } else invoke(preference, "setChecked", binding.live.flag(key));
                 }
                 if (!binding.invalid && CourseLiveSettings.ENABLED.equals(key))
                     textIfChanged(preference, "Summary", SCOPE_NOTE + (binding.live != null && binding.live.enabled
                             ? granted ? "\n如未生效，请重启系统界面。" : "\n" + (binding.scope == null ? "尚未确认作用域"
                                 : binding.scope.getString("message", "系统界面作用域未授权"))
                             : ""));
+            }
+            Object background = binding.preference(BACKGROUND);
+            if (background != null) {
+                textIfChanged(background, "Assignment", binding.backgroundExempt == null ? "未确认"
+                        : binding.backgroundExempt ? "已豁免电池优化" : "未豁免电池优化");
+                textIfChanged(background, "Summary", Boolean.TRUE.equals(binding.backgroundExempt)
+                        ? "若流体云仍中断，点此在模块耗电管理中检查「允许后台运行」"
+                        : "申请电池优化豁免，或在模块耗电管理中开启「允许后台运行」");
+            }
+            Object scopeRow = binding.preference(SYSTEM_SCOPE);
+            if (scopeRow != null) {
+                boolean granted = binding.scope != null && binding.scope.getBoolean("success");
+                textIfChanged(scopeRow, "Assignment", binding.scopePending ? "正在申请" : granted ? "已授权"
+                        : binding.scope != null && binding.scope.getBoolean("known") ? "未授权" : "未确认");
+                textIfChanged(scopeRow, "Summary", granted ? "如通知增强尚未生效，请重启系统界面" : "开启通知增强后可点此重新申请，不影响已保存的开关");
             }
             Object permission = binding.preference(PERMISSION);
             if (permission != null) {
@@ -455,10 +499,7 @@ final class TableSettingsPage {
             if (compatibility != null) textIfChanged(compatibility, "Summary", CourseLiveCapabilities.summary(activity));
             Object liveStatus = binding.preference(LIVE_STATUS);
             if (liveStatus != null) {
-                boolean canConnect = editable && binding.live.astraEnabled;
-                invoke(liveStatus, "setSelectable", canConnect);
-                textIfChanged(liveStatus, "Summary", CourseLiveCapabilities.status(activity, binding.live, binding.scope)
-                        + (canConnect ? "\n如系统限制后台启动，可点此连接模块并登记提醒时间。" : ""));
+                textIfChanged(liveStatus, "Summary", CourseLiveCapabilities.status(activity, binding.live, binding.scope));
             }
         } catch (Exception reflectionError) { failed(activity, "课表设置显示失败", reflectionError); }
     }
@@ -544,6 +585,21 @@ final class TableSettingsPage {
             binding.awaitingAutoPermission = false;
             failed(activity, "无法打开免打扰权限", error);
         }
+    }
+
+    private static void openBackground(Binding binding) {
+        Activity activity = binding.activity.get();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) return;
+        java.util.function.Consumer<Boolean> open = details -> {
+            try {
+                activity.startActivityForResult(new Intent().setClassName(CourseDndClient.PACKAGE,
+                        CourseBackgroundActivity.class.getName()).putExtra(CourseBackgroundActivity.APP_DETAILS,
+                        details.booleanValue()), 0x6CA2);
+            } catch (RuntimeException error) { failed(activity, "无法打开模块后台运行设置", error); }
+        };
+        if (Boolean.TRUE.equals(binding.backgroundExempt)) open.accept(true);
+        else if (!HostSheet.show(activity, "允许模块后台运行", List.of("申请忽略电池优化", "打开应用信息 → 耗电管理"),
+                index -> open.accept(index == 1))) open.accept(false);
     }
 
     private static boolean permissionGranted(Bundle state) {

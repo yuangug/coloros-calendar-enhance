@@ -94,7 +94,7 @@ final class CourseDndBroker {
                         throw new IllegalStateException(item.optString("error", "上次免打扰操作失败，请重新点击"));
                     reconcileLocked(context, false);
                     Bundle result = statusLocked(context, item.getString("key"));
-                    if (item.optBoolean("target") != result.getBoolean("sessionActive"))
+                    if (item.optBoolean("target") != (result.getBoolean("sessionActive") || result.getBoolean("reserved")))
                         throw new IllegalStateException("本次课程免打扰状态已变化，请重新点击");
                     completeToken(context, token, true, null);
                     return result;
@@ -145,7 +145,8 @@ final class CourseDndBroker {
                             || (state == NotificationManager.AUTOMATIC_RULE_STATUS_DEACTIVATED
                                 && inactive && prefs.getBoolean("published", false) && load(context).active(now))) {
                         // An explicit system override wins over this occurrence's automatic setting.
-                        save(context, load(context).suppressActive(now), tokens(context), false);
+                        CourseDndSessions stored = load(context);
+                        save(context, disabled || removed ? stored.revoke(now) : stored.suppressActive(now), tokens(context), false);
                         if (removed)
                             commit(prefs.edit().remove("rule"));
                     }
@@ -214,11 +215,14 @@ final class CourseDndBroker {
         CourseDndSessions before = load(context);
         long now = System.currentTimeMillis();
         requireCurrent(before, key, start, end, now);
-        boolean stopping = availability.getBoolean("sessionActive");
+        boolean stopping = availability.getBoolean("sessionActive") || availability.getBoolean("reserved");
         JSONObject actionTokens = tokens(context);
         // The command is bound to the label that was shown. A grant or automatic start while
         // the permission page is open must not turn an "enable" tap into a disable operation.
         boolean enabling = forceEnable || (token == null ? !stopping : actionTokens.getJSONObject(token).optBoolean("enable", true));
+        if (availability.getBoolean("systemActive") || availability.getBoolean("ownedActive")) return availability;
+        if (!enabling && token != null && now >= start)
+            throw new IllegalStateException("预约已到上课时间，请刷新课程提醒");
         if (enabling && !validationReadyLocked(context)) return awaitingValidationLocked(context, key);
         if (enabling && (!availability.getBoolean("access") || !availability.getBoolean("exactAlarmAccess"))) {
             availability.putBoolean("success", false);
@@ -237,7 +241,7 @@ final class CourseDndBroker {
         try {
             reconcileLocked(context, enabling);
             Bundle result = statusLocked(context, key);
-            if (enabling && !result.getBoolean("sessionActive"))
+            if (enabling && !result.getBoolean("sessionActive") && !result.getBoolean("reserved"))
                 throw new IllegalStateException("系统尚未启用本次课程免打扰，请检查系统规则状态");
             if (token != null) completeToken(context, token, true, null);
             changed(context);
@@ -271,7 +275,10 @@ final class CourseDndBroker {
         String key = request.getString("key");
         long start = request.getLong("start"), end = request.getLong("end");
         requireCurrent(sessions, key, start, end, now);
-        boolean enable = !statusLocked(context, key).getBoolean("sessionActive");
+        Bundle state = statusLocked(context, key);
+        if (state.getBoolean("systemActive") || state.getBoolean("ownedActive"))
+            throw new IllegalStateException("免打扰已开启");
+        boolean enable = !state.getBoolean("reserved");
         if (request.containsKey("enable") && request.getBoolean("enable") != enable)
             throw new IllegalStateException("免打扰状态已变化，请刷新课程卡片");
         JSONObject current = pruneTokens(tokens(context), sessions, now);
@@ -323,7 +330,7 @@ final class CourseDndBroker {
         NotificationManager manager = manager(context);
         boolean access = supported() && manager.isNotificationPolicyAccessGranted();
         boolean ready = access && exactAccess(context);
-        if (!ready && prefs.getBoolean("ready", false)) sessions = sessions.suppressActive(now);
+        if (!ready && prefs.getBoolean("ready", false)) sessions = sessions.revoke(now);
         AutomaticZenRule rule = access ? findRule(context, true) : null;
         if (rule != null && !rule.isEnabled() && !explicitEnable) sessions = sessions.suppressActive(now);
         save(context, sessions, pruneTokens(tokens(context), sessions, now), null);
@@ -368,7 +375,7 @@ final class CourseDndBroker {
                 catch (RuntimeException error) { manager.removeAutomaticZenRule(id); throw error; }
             }
             if (rule != null) {
-                if (active && !rule.isEnabled() && explicitEnable) {
+                if ((active || sessions.all().stream().anyMatch(s -> s.manual && s.reserved(now))) && !rule.isEnabled() && explicitEnable) {
                     rule.setEnabled(true);
                     if (!manager.updateAutomaticZenRule(id, rule)) throw new IllegalStateException("系统未能启用课程免打扰规则");
                 }
@@ -420,6 +427,7 @@ final class CourseDndBroker {
             CourseDndSessions.Session session = sessions.get(key);
             result.putBoolean("known", session != null && session.end > now);
             result.putBoolean("sessionActive", session != null && session.active(now) && owned);
+            result.putBoolean("reserved", access && enabled && result.getBoolean("exactAlarmAccess") && session != null && session.reserved(now));
             result.putBoolean("suppressed", session != null && session.suppressed);
             if (session != null) result.putLong("end", session.end);
         }

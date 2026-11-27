@@ -61,10 +61,14 @@ final class CourseSystemUiScope {
             if (STATUS.equals(method)) {
                 var service = INSTANCE.service;
                 try {
-                    if (service != null && service.getScope().contains(PACKAGE))
-                        return outcome(true, "系统界面作用域已授权");
+                    if (service != null) {
+                        boolean granted = service.getScope().contains(PACKAGE);
+                        Bundle result = outcome(granted, granted ? "系统界面作用域已授权" : "系统界面作用域未授权");
+                        result.putBoolean("known", true);
+                        return result;
+                    }
                 } catch (RuntimeException ignored) { }
-                return outcome(false, service == null ? "尚未连接 LSPosed" : "系统界面作用域未授权");
+                return outcome(false, service == null ? "尚未连接 LSPosed" : "暂时无法读取系统界面作用域");
             }
             ResultReceiver reply = args == null ? null : args.getParcelable(REPLY);
             if (reply == null) return outcome(false, "无效的作用域请求");

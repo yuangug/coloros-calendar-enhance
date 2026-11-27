@@ -22,7 +22,7 @@ final class CourseDndValidation {
     static long nextBoundary(CourseDndSessions sessions, long now) {
         long next = activeLeaseEnd(sessions, now);
         for (CourseDndSessions.Session session : sessions.all()) {
-            if (!session.automatic || session.suppressed || session.start <= now) continue;
+            if (!session.reserved(now)) continue;
             if (next == 0 || session.start < next) next = session.start;
         }
         return next;

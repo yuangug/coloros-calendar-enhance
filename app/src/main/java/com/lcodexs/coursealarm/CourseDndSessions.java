@@ -22,8 +22,10 @@ final class CourseDndSessions {
             this.automatic = automatic; this.manual = manual; this.suppressed = suppressed;
         }
 
+        boolean scheduled() { return !suppressed && (manual || automatic); }
+        boolean reserved(long now) { return now < start && scheduled(); }
         boolean active(long now) {
-            return now < end && !suppressed && (manual || (automatic && now >= start));
+            return start <= now && now < end && scheduled();
         }
 
         boolean sameTime(Session other) { return other != null && start == other.start && end == other.end; }
@@ -55,7 +57,7 @@ final class CourseDndSessions {
 
     CourseDndSessions toggle(String key, long start, long end, long now) {
         Session previous = get(key);
-        return toggle(key, start, end, now, previous != null && previous.active(now));
+        return toggle(key, start, end, now, previous != null && (previous.active(now) || previous.reserved(now)));
     }
 
     CourseDndSessions toggle(String key, long start, long end, long now, boolean currentlyActive) {
@@ -77,6 +79,15 @@ final class CourseDndSessions {
         return new CourseDndSessions(next);
     }
 
+    /** Permission withdrawal cancels bookings too; regranting access is not a new booking. */
+    CourseDndSessions revoke(long now) {
+        List<Session> next = new ArrayList<>();
+        for (Session session : sessions.values())
+            next.add(session.active(now) || (session.manual && session.reserved(now))
+                    ? new Session(session.key, session.start, session.end, session.automatic, false, true) : session);
+        return new CourseDndSessions(next);
+    }
+
     CourseDndSessions prune(long now) {
         List<Session> next = new ArrayList<>();
         for (Session session : sessions.values()) if (session.end > now) next.add(session);
@@ -92,7 +103,7 @@ final class CourseDndSessions {
         long next = Long.MAX_VALUE, activeUntil = 0;
         for (Session session : sessions.values()) {
             if (session.active(now)) activeUntil = Math.max(activeUntil, session.end);
-            else if (session.automatic && !session.suppressed && session.start > now)
+            else if (session.reserved(now))
                 next = Math.min(next, session.start);
         }
         if (activeUntil != 0) {
@@ -102,7 +113,7 @@ final class CourseDndSessions {
             do {
                 extended = false;
                 for (Session session : sessions.values()) {
-                    if (session.automatic && !session.suppressed && session.start <= activeUntil
+                    if (session.scheduled() && session.start <= activeUntil
                             && session.end > activeUntil) {
                         activeUntil = session.end; extended = true;
                     }

@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.json.JSONObject;
 
-/** Controls only the two hosts of the existing course Seedling. */
+/** Routes the same authenticated course Seedling; the ROM decides which hosts can subscribe. */
 final class CourseSeedlingRouting {
     private static final String SEEDLING = "com.oplus.pantanal.seedling.";
     static volatile boolean available;
@@ -31,7 +31,9 @@ final class CourseSeedlingRouting {
                 Class.forName(SEEDLING + "update.INegativeFeedbackCallback", false, loader));
         Method getFlag = intent.getMethod("getFlag"), getOptions = intent.getMethod("getCardOptions"),
                 getData = intent.getMethod("getData"), getId = intent.getMethod("getServiceInstanceId");
-        Route route = new Route(statusBar, notification, getMap, setMap, setPanel, setHide);
+        Object aod = null;
+        try { aod = host.getField("AOD").get(null); } catch (NoSuchFieldException ignored) { }
+        Route route = new Route(statusBar, notification, aod, getMap, setMap, setPanel, setHide);
         module.hook(send).setId("course_astra_seedling_start").intercept(chain -> {
             Object request = chain.getArg(1);
             if (request != null && getFlag.invoke(request) instanceof Enum<?> flag) {
@@ -49,22 +51,26 @@ final class CourseSeedlingRouting {
         available = true;
     }
 
-    private record Route(Object statusBar, Object notification, Method getMap, Method setMap,
+    private record Route(Object statusBar, Object notification, Object aod, Method getMap, Method setMap,
                          Method setPanel, Method setHide) {
         void apply(JSONObject data, String service, Object options, boolean startRequest) {
             if (!available || data == null || options == null || service == null || service.isEmpty()
                     || !service.equals(data.optString("serviceInstanceId"))
-                    || !(data.optBoolean("courseCapsuleRouting") || data.optBoolean("courseKeepVisible") || hidden.contains(service))) return;
+                    || !(data.optBoolean("courseAod") || data.optBoolean("courseCapsuleRouting") || data.optBoolean("courseKeepVisible") || hidden.contains(service))) return;
             long event = data.optLong("eventId", -1), start = data.optLong("courseStartTime", -1);
             if (start <= 0 || event <= 0) return;
             CourseOccurrence item = CourseLiveCoordinator.find(event, start);
             if (item == null) return;
             boolean astra = data.optBoolean("courseCapsuleRouting") && CourseLiveCoordinator.astraOwnsCapsule(item);
             boolean keep = data.optBoolean("courseKeepVisible") && CourseLiveCoordinator.keepVisible(item, System.currentTimeMillis());
-            if (!astra && !keep && !hidden.contains(service)) return;
+            boolean changeCapsule = astra || keep || hidden.contains(service);
+            boolean requestAod = aod != null && data.optBoolean("courseAod");
+            if (!requestAod && !changeCapsule) return;
             try {
                 Map<Object, Object> hosts = new LinkedHashMap<>();
                 if (getMap.invoke(options) instanceof Map<?, ?> old) hosts.putAll(old);
+                if (requestAod) hosts.putIfAbsent(aod, true);
+                if (!changeCapsule) { setMap.invoke(options, hosts); return; }
                 hosts.put(statusBar, !astra);
                 hosts.put(notification, true);
                 setMap.invoke(options, hosts);

@@ -10,15 +10,11 @@ import android.view.*;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.*;
 import android.widget.*;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.util.Collections;
 
-/** Both school import methods share the calendar's preference page and navigation controls. */
+/** School login and parsing for the selected Shiguang adapter. */
 final class JwWebView {
-    interface OnHtml { void onHtml(String html, String title); }
     final Activity activity;
-    final OnHtml html;
     final ShiguangImport.Source source;
     final Runnable finishSelection;
     RescheduleNativeUi.Page page;
@@ -30,17 +26,13 @@ final class JwWebView {
     private FrameLayout webContainer;
     private ShiguangSession session;
     private Dialog jsDialog;
-    private int document;
     private boolean ready, tried, closed;
 
-    static void open(Activity a, OnHtml callback) {
-        new JwWebView(a, callback, null, () -> {}).show();
-    }
     static void open(Activity a, ShiguangImport.Source source, Runnable finishSelection) {
-        new JwWebView(a, null, source, finishSelection).show();
+        new JwWebView(a, source, finishSelection).show();
     }
-    private JwWebView(Activity a, OnHtml html, ShiguangImport.Source source, Runnable finishSelection) {
-        activity = a; this.html = html; this.source = source; this.finishSelection = finishSelection;
+    private JwWebView(Activity a, ShiguangImport.Source source, Runnable finishSelection) {
+        activity = a; this.source = source; this.finishSelection = finishSelection;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -48,7 +40,7 @@ final class JwWebView {
         if (!TransferUi.alive(activity)) return;
         try {
             RescheduleNativeUi ui = new RescheduleNativeUi(activity);
-            page = ui.page(source == null ? "教务系统导入" : "拾光课表", this::parse, this::dispose, true);
+            page = ui.page("拾光课表", this::parse, this::dispose, true);
             page.save.setTitle("解析课表").setEnabled(false);
             View addressBar = ui.nativeView("searchview.COUISearchBar");
             RescheduleNativeUi.call(addressBar, "setSearchAnimateType", 1);
@@ -60,7 +52,7 @@ final class JwWebView {
             address.setImeOptions(EditorInfo.IME_ACTION_GO);
             address.setSelectAllOnFocus(true);
             address.setSingleLine(true);
-            address.setText(source == null ? Prefs.jwLastUrl() : source.adapter.url);
+            address.setText(source.adapter.url);
             int searchIcon = ui.id("drawable", "menu_ic_search");
             if (searchIcon != 0)
                 RescheduleNativeUi.call(addressBar, "setSearchViewIcon", ui.context.getDrawable(searchIcon));
@@ -82,8 +74,7 @@ final class JwWebView {
                         RescheduleNativeUi.call(addressBar, "changeStateImmediately", 1);
                 } catch (Exception e) { TransferUi.failed(activity, e); }
             });
-            status = TransferUi.caption(ui, source == null ? "" : source.adapter.name);
-            if (source == null) status.setVisibility(View.GONE);
+            status = TransferUi.caption(ui, source.adapter.name);
             page.body.addView(status);
             web = new WebView(activity);
             WebSettings settings = web.getSettings();
@@ -99,7 +90,7 @@ final class JwWebView {
                 @Override public void onPageStarted(WebView v, String url, Bitmap icon) {
                     if (closed) return;
                     hidePlaceholder();
-                    ++document; ready = false; tried = false; stopSession();
+                    ready = false; tried = false; stopSession();
                     page.save.setTitle("解析课表").setEnabled(false);
                     Uri site = origin(url);
                     if (site != null) address.setText(site.toString());
@@ -158,7 +149,7 @@ final class JwWebView {
                 go(); return true;
             });
             page.body.setFocusableInTouchMode(true); page.body.requestFocus();
-            if (source != null && !source.adapter.url.isEmpty()) web.loadUrl(source.adapter.url);
+            if (!source.adapter.url.isEmpty()) web.loadUrl(source.adapter.url);
         } catch (Exception e) { close(); TransferUi.failed(activity, e); }
     }
     private boolean webDialog(String message, String value, JsResult result, boolean cancelable) {
@@ -185,7 +176,6 @@ final class JwWebView {
             message("请输入教务系统的 http 或 https 网址");
             showPlaceholder("请输入有效的教务系统 http 或 https 网址。"); return;
         }
-        if (source == null) Prefs.setJwLastUrl(origin(url).toString());
         web.requestFocus(); web.loadUrl(url);
     }
     static Uri origin(String url) {
@@ -197,28 +187,11 @@ final class JwWebView {
     }
     private void parse() {
         if (closed || !ready || web == null || origin(web.getUrl()) == null) return;
-        if (source != null) {
-            if (tried) { stopSession(); web.reload(); message("网页正在重新加载，加载后可再次解析"); return; }
-            tried = true; page.save.setTitle("重新加载");
-            message("正在解析：" + source.adapter.name);
-            session = new ShiguangSession(this);
-            session.start(origin(web.getUrl()));
-            return;
-        }
-        final int epoch = document;
-        page.save.setEnabled(false);
-        String site = origin(web.getUrl()).toString();
-        web.evaluateJavascript("(function(){const out=[document.documentElement.outerHTML];"
-                + "for(const f of document.querySelectorAll('iframe,frame'))try{if(f.contentDocument)"
-                + "out.push(f.contentDocument.documentElement.outerHTML)}catch(e){};return out.join('\\n<!--frame-->\\n');})()", raw -> {
-            if (closed || document != epoch) return;
-            page.save.setEnabled(true);
-            try {
-                String data = new JSONArray("[" + raw + "]").getString(0);
-                if (data.length() < 200) { message("页面还没加载好，或当前页不是课表"); return; }
-                close(); html.onHtml(data, site);
-            } catch (Exception e) { message("读不到当前页的课表"); }
-        });
+        if (tried) { stopSession(); web.reload(); message("网页正在重新加载，加载后可再次解析"); return; }
+        tried = true; page.save.setTitle("重新加载");
+        message("正在解析：" + source.adapter.name);
+        session = new ShiguangSession(this);
+        session.start(origin(web.getUrl()));
     }
     void message(String message) {
         if (closed || status == null) return;

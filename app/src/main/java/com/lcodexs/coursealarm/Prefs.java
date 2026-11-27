@@ -82,17 +82,6 @@ final class Prefs {
         if (s != null) s.edit().putBoolean(period.prefPrefix + KEY_VIBRATE, v).apply();
     }
 
-    /** 教务系统上次打开的地址（网页登录版用） */
-    static String jwLastUrl() {
-        SharedPreferences s = p();
-        return s == null ? "" : s.getString("jw_last_url", "");
-    }
-
-    static void setJwLastUrl(String url) {
-        SharedPreferences s = p();
-        if (s != null) s.edit().putString("jw_last_url", url == null ? "" : url).apply();
-    }
-
     /** 记录上一次成功结果，用于设置页摘要与排错 */
     static void setLastResult(AlarmPeriod period, String text) {
         SharedPreferences s = p();

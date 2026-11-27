@@ -82,7 +82,7 @@ final class CourseLiveCoordinator {
         Notification original;
         PendingIntent dnd;
         Boolean dndSessionActive;
-        boolean otherDnd;
+        boolean dndReserved;
         String last = "";
         Posted(String key, String tag, int id, Notification original) {
             this.key = key; this.tag = tag; this.id = id; this.original = original;
@@ -398,8 +398,9 @@ final class CourseLiveCoordinator {
                         CourseOccurrence item = find(intent.getStringExtra(KEY));
                         Bundle result = item == null || settings(item) == null ? Bundle.EMPTY
                                 : CourseDndClient.enable(app, item.key, item.start, item.end);
-                        String message = result.getBoolean("success") && result.getBoolean("sessionActive")
-                                ? "已开启本次课程免打扰，下课时自动结束"
+                        String message = result.getBoolean("success") && result.getBoolean("reserved")
+                                ? "已预约免打扰，上课时开启"
+                                : result.getBoolean("success") && CourseDndClient.active(result) ? "免打扰已开启"
                                 : result.getString("error", "课程已变化，未开启免打扰");
                         new Handler(android.os.Looper.getMainLooper()).post(() ->
                                 android.widget.Toast.makeText(app, message, android.widget.Toast.LENGTH_LONG).show());
@@ -530,13 +531,14 @@ final class CourseLiveCoordinator {
         result.putBoolean("dndEnabled", showDnd);
         if (showDnd) {
             Bundle status = CourseDndClient.status(app, item.key);
-            boolean active = status.getBoolean("sessionActive");
+            boolean active = CourseDndClient.active(status), reserved = status.getBoolean("reserved");
             result.putBoolean("dndActive", active);
-            result.putBoolean("otherDnd", status.getBoolean("systemActive") && !status.getBoolean("ownedActive"));
+            result.putBoolean("dndReserved", reserved);
+            if (active) { nativeActions.remove(item.key); return result; }
             NativeAction action = nativeActions.get(item.key);
-            if (action == null || action.intent == null || action.active != active) {
-                action = new NativeAction(); action.active = active;
-                action.intent = CourseDndClient.action(app, item.key, item.start, item.end, active, dndContinuation(item));
+            if (action == null || action.intent == null || action.active != reserved) {
+                action = new NativeAction(); action.active = reserved;
+                action.intent = CourseDndClient.action(app, item.key, item.start, item.end, reserved, dndContinuation(item));
                 nativeActions.put(item.key, action);
             }
             if (action.intent != null) result.putParcelable("dndAction", action.intent);
@@ -728,16 +730,16 @@ final class CourseLiveCoordinator {
             }
             try {
                 Bundle status = state.showDndButton && now < item.end ? CourseDndClient.status(app, item.key) : Bundle.EMPTY;
-                boolean active = status.getBoolean("sessionActive");
-                record.otherDnd = status.getBoolean("systemActive") && !status.getBoolean("ownedActive");
+                boolean active = CourseDndClient.active(status);
+                record.dndReserved = status.getBoolean("reserved");
                 String fingerprint = item.timing(now) + ":" + state.showProgress + ":" + state.showDndButton
                         + ":" + (state.retainOnClick || keepVisible(item, now)) + ":" + active + ":" + state.retainMinutes
-                        + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end + ":" + record.otherDnd;
+                        + ":" + item.title + ":" + item.room + ":" + item.teacher + ":" + item.start + ":" + item.end + ":" + record.dndReserved;
                 if (fingerprint.equals(record.last)) continue;
-                if (state.showDndButton && now < item.end
-                        && (record.dnd == null || !Boolean.valueOf(active).equals(record.dndSessionActive))) {
-                    record.dnd = CourseDndClient.action(app, item.key, item.start, item.end, active, dndContinuation(item));
-                    record.dndSessionActive = record.dnd == null ? null : active;
+                if (active || !state.showDndButton || now >= item.end) record.dnd = null;
+                else if (record.dnd == null || !Boolean.valueOf(record.dndReserved).equals(record.dndSessionActive)) {
+                    record.dnd = CourseDndClient.action(app, item.key, item.start, item.end, record.dndReserved, dndContinuation(item));
+                    record.dndSessionActive = record.dnd == null ? null : record.dndReserved;
                 }
                 Notification decorated = decorate(record, item, state, active, now);
                 manager().notify(record.tag, record.id, decorated); record.last = fingerprint;
@@ -849,7 +851,7 @@ final class CourseLiveCoordinator {
                         .putExtra(KEY, item.key).putExtra(END, item.end);
                 int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
                 String result = CourseAstraIsland.publish(app, item, state, PendingIntent.getActivity(app, 0, open, flags),
-                        PendingIntent.getBroadcast(app, 0, dismiss, flags), action.getParcelable("dndAction"), dndActive);
+                        PendingIntent.getBroadcast(app, 0, dismiss, flags), action.getParcelable("dndAction"), dndActive, action.getBoolean("dndReserved"));
                 if (CourseAstraIsland.ACCEPTED.equals(result)) {
                     if (pendingDnd != null) retryDnd();
                     publication.accepted(elapsed);
@@ -885,17 +887,17 @@ final class CourseLiveCoordinator {
         String details = android.text.format.DateFormat.format("HH:mm", item.start) + "–"
                 + android.text.format.DateFormat.format("HH:mm", item.end)
                 + (item.room.isEmpty() ? "" : " · " + item.room) + (item.teacher.isEmpty() ? "" : " · " + item.teacher);
-        builder.setSubText(details + (record.otherDnd ? " · 系统免打扰已开启" : ""));
+        builder.setSubText(details + (dndActive ? " · 免打扰已开启" : ""));
         builder.setStyle(null);
         // Only SystemUI draws course progress, inside the original Seedling row.
         builder.setProgress(0, 0, false);
         List<Notification.Action> actions = new ArrayList<>();
         if (original.actions != null) for (Notification.Action action : original.actions)
             if (!action.getExtras().getBoolean("lspx.live.dnd")) actions.add(action);
-        if (state.showDndButton && now < item.end && record.dnd != null) {
+        if (state.showDndButton && !dndActive && now < item.end && record.dnd != null) {
             Bundle extras = new Bundle(); extras.putBoolean("lspx.live.dnd", true);
             actions.add(new Notification.Action.Builder((android.graphics.drawable.Icon) null,
-                    dndActive ? "结束本次免打扰" : "开启免打扰", record.dnd).addExtras(extras).build());
+                    CourseDndClient.label(false, record.dndReserved, now < item.start), record.dnd).addExtras(extras).build());
         }
         builder.setActions(actions.toArray(new Notification.Action[0]));
         PendingIntent nativeDelete = original.extras.getParcelable("lspx.live.nativeDelete");

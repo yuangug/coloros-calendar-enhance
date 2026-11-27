@@ -56,6 +56,11 @@ public final class DeviceVerification {
     static Activity activity()throws Exception{java.lang.reflect.Field field=UndoBar.class.getDeclaredField("resumed");field.setAccessible(true);Activity a=(Activity)((WeakReference<?>)field.get(null)).get();if(a==null)throw new IllegalStateException("No resumed Activity");return a;}
     static void run(JSONObject input)throws Exception{
         String op=input.getString("op");
+        if(op.equals("shadeLayout")) {
+            try { CourseShadeLayoutProbe.run(app); reply(new JSONObject().put("inlineLayouts",4),null); }
+            catch (RuntimeException | AssertionError error) { reply(null,error); }
+            return;
+        }
         if(op.equals("cleanupAstraFixture")) {
             new Thread(() -> { try {
                 long id=input.getLong("id"), restore=input.getLong("restore");

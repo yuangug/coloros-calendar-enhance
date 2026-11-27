@@ -13,7 +13,9 @@ final class ShiguangImport {
         final ShiguangCatalog.Adapter adapter;
         final String script, bridge;
         Source(ShiguangCatalog.Adapter a) throws Exception {
-            adapter = a; script = ShiguangCatalog.script(a); bridge = ShiguangCatalog.bridge();
+            adapter = a;
+            script = a.localXit ? "" : ShiguangCatalog.script(a);
+            bridge = a.localXit ? ShiguangCatalog.bundledScript("xit.js") : ShiguangCatalog.bridge();
         }
     }
 
@@ -113,7 +115,7 @@ final class ShiguangImport {
             String query = input.trim().toLowerCase(Locale.ROOT);
             matches.clear();
             for (ShiguangCatalog.Adapter a : all)
-                if ((a.school + " " + a.name + " " + a.id + " " + a.initial).toLowerCase(Locale.ROOT).contains(query)) matches.add(a);
+                if ((a.school + " " + a.name + " " + a.id + " " + a.initial + " " + a.url).toLowerCase(Locale.ROOT).contains(query)) matches.add(a);
             notifyDataSetChanged();
         }
         public int getCount() { return matches.size(); }

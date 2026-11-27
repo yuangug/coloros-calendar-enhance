@@ -110,25 +110,16 @@ final class CurriculumIo {
 
     static void showImportMenu(Activity a) {
         if (a == null) return;
-        List<String> opts = new ArrayList<>();
-        opts.add("从教务系统导入（网页登录）");
-        opts.add("从文件导入（选 .ics / .xlsx）");
-        opts.add("从「下载」目录直接选（推荐）");
-        opts.add("粘贴课表 HTML / 表单直连（高级）");
-        opts.add("拾光课表（教务系统导入）");
-        options(a, "导入课表", opts, idx -> {
-            if (idx == 4) { ShiguangImport.open(a); return; }
-            if (idx == 2) { pickFromDownloads(a); return; }
-            // 用 */* + EXTRA_MIME_TYPES：不少文件管理器会把 .ics 归到「其他」，
-            // 只给 text/calendar 时会显示"无文件"（实测 OPPO 文件选择器如此）。
-            // requestCode 统一用 REQ_FILE —— 选到的是 .ics 还是 .xlsx，由文件内容决定（ImportFormat）。
-            if (idx == 1) pickFile(a, "*/*", REQ_FILE,
-                    "text/calendar", "application/octet-stream", "text/x-vcalendar",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "application/vnd.ms-excel");
-            else if (idx == 0) importFromJwWeb(a);
-            else importFromJw(a);
-        });
+        Map<String, Runnable> entries = new LinkedHashMap<>();
+        entries.put("拾光课表（教务系统导入）", () -> ShiguangImport.open(a));
+        entries.put("从文件导入（选 .ics / .xlsx）", () -> pickFile(a, "*/*", REQ_FILE,
+                "text/calendar", "application/octet-stream", "text/x-vcalendar",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.ms-excel"));
+        entries.put("从「下载」目录直接选（推荐）", () -> pickFromDownloads(a));
+        entries.put("粘贴课表 HTML / 表单直连（高级）", () -> importFromJw(a));
+        List<String> labels = new ArrayList<>(entries.keySet());
+        options(a, MENU_IMPORT, labels, index -> entries.get(labels.get(index)).run());
     }
 
     private static void pickFile(Activity a, String mime, int req, String... extraMimes) {
@@ -348,38 +339,6 @@ final class CurriculumIo {
         }, "lspx-import-uri").start();
     }
 
-    /** 教务系统（网页登录版）：WebView 里用户自己登录 → 点到课表页 → 确定 → 解析当前页 */
-    static void importFromJwWeb(Activity a) {
-        JwWebView.open(a, (html, title) -> new Thread(() -> {
-            List<Course> list = JwClient.parseHtml(html);
-            final List<String> noTime = JwParser.lastUnscheduled();
-            Logx.i(T, "jw webview parsed n=" + list.size() + " url=" + title
-                    + " htmlLen=" + html.length() + " noTime=" + noTime.size());
-            UI.post(() -> {
-                if (list.isEmpty()) {
-                    String diag = JwClient.diagnose(html);
-                    Logx.w(T, "jw webview parsed 0 → " + diag.replace("\n", " | "));
-                    List<String> opts = new ArrayList<>();
-                    opts.add("重新抓取这一页");
-                    opts.add("粘贴课表 HTML（高级）");
-                    options(a, "没解析出课程\n" + diag, opts, idx -> {
-                        if (idx == 0) importFromJwWeb(a);
-                        else importFromJw(a);
-                    });
-                    return;
-                }
-                // 页面备注行里"没有节次"的课排不进课表 —— 说清楚，别让用户以为被吞了
-                if (!noTime.isEmpty()) {
-                    int n = Math.min(2, noTime.size());
-                    toast(a, "另有 " + noTime.size() + " 门课在页面里没有节次，未导入："
-                            + String.join("、", noTime.subList(0, n))
-                            + (noTime.size() > n ? " 等" : ""));
-                }
-                preview(a, list, "教务系统");
-            });
-        }, "lspx-jw-web").start());
-    }
-
     /** 教务系统：先弹配置，再抓取，再预览 */
     static void importFromJw(Activity a) {
         List<String[]> fields = new ArrayList<>();
@@ -436,6 +395,9 @@ final class CurriculumIo {
     }
 
     static void preview(Activity a, List<Course> list, String source, TableCtx frozen, String note) {
+        preview(a,list,source,frozen,note,null);
+    }
+    static void preview(Activity a, List<Course> list, String source, TableCtx frozen, String note, String proposedConfig) {
         if (!TransferUi.alive(a)) return;
         if (list == null || list.isEmpty()) {
             toast(a, source + "：没解析出课程");
@@ -461,7 +423,9 @@ final class CurriculumIo {
                 if (idx == null) return;
                 CourseMutations.Mode mode = idx == 0 ? CourseMutations.Mode.REPLACE
                         : idx == 1 ? CourseMutations.Mode.APPEND : CourseMutations.Mode.NEW_TABLE;
-                CourseMutations.importCourses(a, frozen, list, mode, "课程表 " + (frozen.courseCalIds.size() + 1), null);
+                String name="课程表 " + (frozen.courseCalIds.size() + 1);
+                if(proposedConfig==null) CourseMutations.importCourses(a,frozen,list,mode,name,null);
+                else CourseMutations.importWithTiming(a,frozen,list,mode,name,proposedConfig);
             });
         } catch (Exception e) { TransferUi.failed(a, e); }
     }

@@ -377,6 +377,13 @@ final class CourseMutations {
 
     private static Result performImport(TableCtx frozen, List<Course> courses, Mode mode, String name,
                                         String pastedJson) throws Exception {
+        return performImport(frozen,courses,mode,name,pastedJson,null);
+    }
+    static void importWithTiming(Context context,TableCtx frozen,List<Course> courses,Mode mode,String name,String config) {
+        submit(context,null,()->performImport(frozen,courses,mode,name,null,config));
+    }
+    private static Result performImport(TableCtx frozen,List<Course> courses,Mode mode,String name,
+                                        String pastedJson,String proposedConfig) throws Exception {
         requireBackend();
         if (courses == null || courses.isEmpty()) throw new IllegalArgumentException("没有有效课程，原课表未改动");
         if (frozen.backendAuthority != null && !backend.authority.equals(frozen.backendAuthority))
@@ -389,6 +396,23 @@ final class CourseMutations {
         currentConfig.remove("sysVersion"); frozenConfig.remove("sysVersion");
         if (!canonical(currentConfig).toString().equals(canonical(frozenConfig).toString()))
             throw new IllegalStateException("课表配置已变化，请重新预览导入");
+        boolean timingChanged=false;
+        String effectiveJson=currentJson;
+        if(proposedConfig!=null) {
+            long selected=TableCtx.hostCurrentTableId(app);
+            if(selected>0 && selected!=frozen.calendarId)
+                throw new IllegalStateException("当前课表已切换，请重新预览导入");
+            TableCtx old=TableCtx.fromMetadata(frozen.calendarId,frozen.tableName,currentJson);
+            TableCtx incoming=TableCtx.fromMetadata(frozen.calendarId,frozen.tableName,proposedConfig);
+            timingChanged=!old.termDate().equals(incoming.termDate()) || old.weekCount!=incoming.weekCount ||
+                    !Arrays.equals(old.periodStart,incoming.periodStart) || !Arrays.equals(old.periodEnd,incoming.periodEnd);
+            if(timingChanged) {
+                JSONObject merged=new JSONObject(currentJson), proposed=new JSONObject(proposedConfig);
+                for(String k:new String[]{"termBeginTime","weekNumberOfThisTerm","courseTableTime"}) merged.put(k,proposed.get(k));
+                effectiveJson=merged.toString();
+            }
+            frozen=TableCtx.fromMetadata(frozen.calendarId,frozen.tableName,effectiveJson);
+        }
         for (Course course : courses) {
             if (course.name == null || course.name.trim().isEmpty() || course.day < 0 || course.day > 6
                     || course.startNode < 0 || course.endNode < course.startNode || course.endNode >= frozen.nodeCount()
@@ -400,7 +424,7 @@ final class CourseMutations {
         ArrayList<ContentProviderOperation> operations = new ArrayList<>();
         ArrayList<Integer> inserted = new ArrayList<>();
         Object calendar;
-        String tableJson = frozen.tableJson;
+        String tableJson = proposedConfig==null ? frozen.tableJson : effectiveJson;
         if (create) {
             JSONObject config = new JSONObject(tableJson);
             config.remove("sysVersion");
@@ -424,6 +448,14 @@ final class CourseMutations {
         } else {
             calendar = HostEntities.calendar(app, frozen.calendarId);
             operations.add(assertion(current));
+            if(timingChanged) {
+                int active=0;
+                for(Row row:rows("events","calendar_id",frozen.calendarId))
+                    if(number(row.values,"deleted")==0 && number(row.values,"hasExtendedProperties")==CourseWriter.COURSE_EXT_PROP) active++;
+                if(active>0 && mode==Mode.APPEND)
+                    throw new IllegalArgumentException("学校作息或学期与目标课表不同，请改选新建或替换，以保留原课程时间");
+                operations.add(activeCoursesAssertion(frozen.calendarId,active));
+            }
             if (mode == Mode.REPLACE) {
                 for (Row event : rows("events", "calendar_id", frozen.calendarId)) {
                     if (number(event.values, "hasExtendedProperties") == CourseWriter.COURSE_EXT_PROP && number(event.values, "deleted") == 0)
@@ -434,6 +466,16 @@ final class CourseMutations {
                     operations.add(ContentProviderOperation.newDelete(uri("events")).withSelection("_id=?", args(row.id))
                             .withExpectedCount(1).withYieldAllowed(false).build());
                 }
+            }
+            if(timingChanged) {
+                record.before.add(current);
+                ContentValues delta=new ContentValues();
+                delta.put("calendars_json_extensions",tableJson);
+                delta.put("dirty",1);
+                if(current.values.containsKey("calendar_update_time")) delta.put("calendar_update_time",System.currentTimeMillis());
+                operations.add(ContentProviderOperation.newUpdate(uri("calendars")).withSelection("_id=?",args(current.id))
+                        .withValues(delta).withExpectedCount(1).withYieldAllowed(false).build());
+                HostEntities.set(calendar,"setCalendarJsonExtensions",tableJson);
             }
         }
         String entityPackage = "com.android.calendar.card.schooltimetable.entity.";
@@ -641,6 +683,18 @@ final class CourseMutations {
 
     private static ArrayList<ContentProviderOperation> buildUndo(Record record, List<Row> current) throws Exception {
         ArrayList<ContentProviderOperation> ops = assertions(current);
+        for (Row row:current) if(!row.absent && row.table.equals("calendars")) {
+            Row before=findRow(record.before,row.key());
+            if(before==null || before.absent ||
+                    Objects.equals(before.values.getAsString("calendars_json_extensions"),row.values.getAsString("calendars_json_extensions"))) continue;
+            int count=0;
+            for(Row event:rows("events","calendar_id",row.id)) if(number(event.values,"deleted")==0 &&
+                    number(event.values,"hasExtendedProperties")==CourseWriter.COURSE_EXT_PROP) {
+                if(!contains(record.after,event.key())) throw new IllegalStateException("课表已有新课程，无法撤回作息变更");
+                count++;
+            }
+            ops.add(activeCoursesAssertion(row.id,count));
+        }
         // Guard the complete child sets too: another writer must not lose a new course/reminder.
         for (Row row : current) if (!row.absent && row.table.equals("calendars") && !contains(record.before, row.key())) {
             List<Row> events = rows("events", "calendar_id", row.id);
@@ -726,6 +780,12 @@ final class CourseMutations {
     private static Row findRow(List<Row> image, String key) {
         for (Row row : image) if (row.key().equals(key)) return row;
         return null;
+    }
+    private static ContentProviderOperation activeCoursesAssertion(long id,int count) {
+        return ContentProviderOperation.newAssertQuery(uri("events"))
+                .withSelection("calendar_id=? AND deleted=0 AND hasExtendedProperties=?",
+                        new String[]{Long.toString(id), Integer.toString(CourseWriter.COURSE_EXT_PROP)})
+                .withExpectedCount(count).withYieldAllowed(false).build();
     }
     private static ContentProviderOperation countAssertion(String table, String foreignKey, long id, int count) {
         return ContentProviderOperation.newAssertQuery(uri(table)).withSelection(foreignKey + "=?", args(id))

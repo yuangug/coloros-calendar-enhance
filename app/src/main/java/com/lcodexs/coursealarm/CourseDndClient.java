@@ -23,10 +23,25 @@ public final class CourseDndClient {
 
     public static Bundle status(Context context) { return status(context, null); }
 
+    static boolean active(Bundle status) {
+        return status.getBoolean("systemActive") || status.getBoolean("ownedActive") || status.getBoolean("sessionActive");
+    }
+
+    static String label(boolean active, boolean reserved, boolean before) {
+        return active ? "免打扰已开启" : before ? (reserved ? "取消预约" : "预约免打扰") : "开启免打扰";
+    }
+
     public static Bundle status(Context context, String key) {
         Bundle request = new Bundle();
         if (key != null) request.putString("key", key);
-        return call(context, "status", request);
+        Bundle status = call(context, "status", request);
+        // A stopped module cannot report its own rule, but the calendar can still observe system DND.
+        if (!status.getBoolean("success")) try {
+            int filter = context.getSystemService(android.app.NotificationManager.class).getCurrentInterruptionFilter();
+            status.putBoolean("systemActive", filter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                    && filter != android.app.NotificationManager.INTERRUPTION_FILTER_UNKNOWN);
+        } catch (RuntimeException ignored) { }
+        return status;
     }
 
     /** Complete valid schedule; absence releases a deleted or no-longer-selected occurrence. */
@@ -65,7 +80,7 @@ public final class CourseDndClient {
 
     /** A module-owned action bound to its current enable/stop label, using only an opaque nonce. */
     public static PendingIntent action(Context context, String key, long start, long end) {
-        return action(context, key, start, end, status(context, key).getBoolean("sessionActive"), null);
+        return action(context, key, start, end, status(context, key).getBoolean("reserved"), null);
     }
 
     public static PendingIntent action(Context context, String key, long start, long end, boolean active,

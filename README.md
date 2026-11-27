@@ -2,7 +2,7 @@
 
 在 ColorOS 日历主页底栏打开「课程表」，就能查看本周安排、导入学校课表、拖动调课。课前提醒仍由日历发出，早晨和下午的闹钟则交给系统时钟。
 
-[下载 APK](https://github.com/Xposed-Modules-Repo/io.github.yuangug.coursealarm/releases/latest) · [0.10.2 更新记录](CHANGELOG-0.10.2.md) · [反馈问题](https://github.com/yuangug/coloros-calendar-enhance/issues)
+[下载 APK](https://github.com/Xposed-Modules-Repo/io.github.yuangug.coursealarm/releases/latest) · [0.10.3 更新记录](CHANGELOG-0.10.3.md) · [反馈问题](https://github.com/yuangug/coloros-calendar-enhance/issues)
 
 ## 安装与首次使用
 
@@ -11,7 +11,15 @@
 3. 有 Excel 或 ICS 文件就选「从文件导入」；从学校网站导入可选「拾光课表（教务系统导入）」，搜索学校、登录教务系统、打开课表，再点「解析课表」。
 4. 在预览中核对目标课表、课程数和节次，选择**追加、替换或新建**。退出预览不会写入。要备份当前课表，选 **⋮ → 导出课表**。
 
-拾光适配器随模块提供，无需安装拾光应用。导入沿用目标课表的学期及作息；如果学校的自定义上课时间不匹配，请先核对目标课表的节次。旧版 Excel 的 `.xls` 文件需先另存为 `.xlsx`。
+拾光适配器随模块提供，无需安装拾光应用。旧版 Excel 的 `.xls` 文件需先另存为 `.xlsx`。
+
+### 厦门工学院怎么导入
+
+从 0.10.3 起，在「拾光课表（教务系统导入）」搜索「厦门工学院」或「XIT」。原独立网页登录入口已合并；文件、下载目录和高级导入仍在。
+
+选择要导入的学期，打开学期理论课表并选择全部周次，再点「解析课表」。预览会读取该学期的开学日期和学校列出的上课时间；如果只列连堂课的起止时间，请按学校作息补齐各小节。缺少开学日期时也需要手动确认，模块不会按固定课长推算。
+
+新建或替换时，学期、作息与课程一起保存，也可一起撤回。向已有课程的课表追加时，如学期或作息不一致，预览后的写入会被拒绝；要同时保留两套作息，请选择新建。其他拾光适配器仍沿用目标课表的学期和作息。
 
 ## 日常使用
 
@@ -31,9 +39,15 @@
 
 星河岛需要兼容的星流环境；增强通知栏的原生实时活动另需「系统界面」作用域，两者可以独立使用。普通课表、导入导出及闹钟只需推荐的日历作用域。
 
+课间休息期间，展开卡的进度停在对应圆点，下一节开始后继续。通知中心倒计时右侧的「预约免打扰」使用与 WakeUp 课程提醒相同的系统胶囊样式。课前可预约或取消，上课时预约才生效，也可在课中直接开启。免打扰已经开启时，同一位置只显示「免打扰已开启」。
+
+要尝试在息屏上查看课程名，可开启本课表的星河岛增强，再开启星流「显示规则 → 锁屏显示、息屏显示」。实际能否显示取决于设备和星流。ColorOS 的「场景化信息 → 流体云」是另一个入口；17.3.70、17.6.20 和 17.8.0 内置的课程模板均未声明息屏入口。本次在 17.8.0 的设备上没有看到原生息屏课程卡。
+
+长按「课表设置」可显示或隐藏测试功能。「后台运行与状态」可申请模块的电池优化豁免、打开模块耗电管理或重新连接星河岛。这里会分别显示课表保存的开关和系统界面作用域的实际状态；暂时联系不上 LSPosed 时，可在「系统界面作用域」重试，不必反复切换增强开关。
+
 ## 兼容与反馈
 
-面向 ColorOS 日历（`com.coloros.calendar`）。17.3.70、17.6.20、17.8.0 做过相关接口检查；实机覆盖范围因功能而异，见[兼容记录](compatibility/README.md)。如果学校网站改版导致拾光解析失败，仍可尝试通用教务导入、粘贴课表 HTML / 正方 `kbList` JSON，或改用文件导入。
+面向 ColorOS 日历（`com.coloros.calendar`）。17.3.70、17.6.20、17.8.0 做过相关接口检查；实机覆盖范围因功能而异，见[兼容记录](compatibility/README.md)。如果学校网站改版导致拾光解析失败，可尝试高级导入（课表 HTML / 正方 `kbList` JSON），或改用 Excel / ICS 文件。
 
 [提交问题](https://github.com/yuangug/coloros-calendar-enhance/issues)时，请附日历和模块版本、操作入口及复现步骤。导入问题可提供已去除个人信息的课程样例。
 
@@ -49,5 +63,5 @@ python tools/run_live_checks.py --jdk "/path/to/jdk-21"
 Windows 可使用 `gradlew.bat`。调试 APK 位于 `app/build/outputs/apk/debug/`。模块包名是 `io.github.yuangug.coursealarm`。
 
 - [拾光导入：适配器来源、数据边界与回归方法](docs/shiguang-import-ui.md)
-- [课程实时活动：本地与 Android 检查](tools/livecheck/README.md)
+- [验证工具索引](tools/README.md) · [课程实时活动：本地与 Android 检查](tools/livecheck/README.md)
 - [第三方组件及许可证](licenses/NOTICE.md) · [星河岛 SDK 说明](licenses/ASTRAISLAND-SDK-NOTICE.md)

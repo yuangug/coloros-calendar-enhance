@@ -39,7 +39,7 @@ final class CourseAstraBroker {
 
     private record Course(String title, String metadata, long start, long end, long expires,
                           boolean showProgress, CourseBreaks breaks, CourseAstraStyle style, PendingIntent open, PendingIntent dnd,
-                          boolean dndActive, PendingIntent dismiss) { }
+                          boolean dndActive, boolean reserved, PendingIntent dismiss) { }
 
     private static final class Session {
         Course course;
@@ -78,7 +78,7 @@ final class CourseAstraBroker {
                     start, end, expires, request.getBoolean("showProgress"), CourseBreaks.decode(start, end, request.getLongArray("breaksV1")),
                     CourseAstraStyle.fromId(request.getString("style")),
                     pending(request, "open", false), pending(request, "dnd", true),
-                    request.getBoolean("dndActive"), pending(request, "dismiss", false));
+                    request.getBoolean("dndActive"), request.getBoolean("reserved"), pending(request, "dismiss", false));
             Session previous = active.get(id);
             if (CourseAstraIsland.CONNECTING.equals(status)) {
                 // READY can arrive just after this provider call. Keep the validated payload
@@ -161,24 +161,27 @@ final class CourseAstraBroker {
         int progress = course.showProgress() && now >= course.start()
                 ? CourseOccurrence.progress(course.start(), course.end(), now) : -1;
         float fraction = progress / 10000f;
-        TextButton button = course.dnd() == null || now >= course.end() ? null : new TextButton(DND,
-                course.dndActive() ? "结束免打扰" : "免打扰");
+        boolean activeDnd = course.dndActive() && now < course.end();
+        String body = progress >= 0 ? course.metadata() : details;
+        if (activeDnd) body = body.isEmpty() ? "免打扰已开启" : body + "\n免打扰已开启";
+        TextButton button = activeDnd || course.dnd() == null || now >= course.end() || (course.reserved() && now >= course.start())
+                ? null : new TextButton(DND, CourseDndClient.label(false, course.reserved(), now < course.start()));
         IslandCard card;
         if (progress >= 0) {
             ProgressCard.Builder builder = new ProgressCard.Builder(course.title()).setSubtitle(subtitle)
                     .setImage(CourseAstraGlyphs.TIMETABLE)
-                    .setBody(course.metadata().isEmpty() ? null : course.metadata());
+                    .setBody(body.isEmpty() ? null : body);
             configureProgress(builder, course.breaks(), course.start(), course.end(), now, start, end);
             if (button != null) builder.addButton(button);
             card = builder.build();
         } else {
             GenericCard.Builder builder = new GenericCard.Builder(course.title()).setSubtitle(subtitle)
-                    .setImage(CourseAstraGlyphs.TIMETABLE).setBody(details);
+                    .setImage(CourseAstraGlyphs.TIMETABLE).setBody(body);
             if (button != null) builder.addButton(button);
             card = builder.build();
         }
         Capsule capsule = new Capsule.Builder(CourseAstraGlyphs.badge(course.style(), course.start(), course.end(), now))
-                .setLabel("课程").setTrailing(progress >= 0 ? CapsuleTrailing.Companion.progress(fraction)
+                .setLabel(CourseAstraIsland.limit(course.title(), 16)).setTrailing(progress >= 0 ? CapsuleTrailing.Companion.progress(fraction)
                         : CapsuleTrailing.Companion.text(subtitle)).build();
         // The Calendar-owned shade notification cannot be linked as a module-owned notification.
         IslandActivity activity = new IslandActivity.Builder(id, capsule, card)

@@ -55,10 +55,12 @@ public final class CourseConversionCheck {
         if (args.length > 0) {
             ShiguangCatalog.setModulePath(args[0]);
             List<ShiguangCatalog.Adapter> catalog = ShiguangCatalog.load();
-            require(catalog.size() == 298, "catalog count changed");
+            require(catalog.size() == 299, "expected 298 upstream adapters plus XIT");
             require(ShiguangCatalog.bridge().contains("notifyTaskCompletion"), "bridge missing from APK");
             for (ShiguangCatalog.Adapter adapter : catalog) {
-                require(ShiguangCatalog.script(adapter).contains("saveImportedCourses"), "adapter script missing");
+                if(adapter.localXit) require(adapter.url.equals("https://xgjwxt.xit.edu.cn/jsxsd/") &&
+                        ShiguangCatalog.bundledScript("xit.js").contains("jxzl_query"), "local XIT adapter missing");
+                else require(ShiguangCatalog.script(adapter).contains("saveImportedCourses"), "adapter script missing");
             }
         }
         System.out.println("PASS: " + checks + " course conversion and APK adapter checks");

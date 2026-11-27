@@ -38,7 +38,8 @@ final class CourseLiveCapabilities {
         StringBuilder value = new StringBuilder();
         value.append("通知栏：");
         if (!settings.enabled) value.append("已关闭");
-        else if (scope == null || !scope.getBoolean("success")) value.append("等待系统界面作用域授权");
+        else if (scope == null || !scope.getBoolean("success")) value.append(scope != null && scope.getBoolean("known")
+                ? "已开启，等待系统界面作用域授权" : "已开启，暂未确认作用域状态");
         else {
             String prefix = "native_" + settings.identity + "_";
             long expiry = reports.getLong(prefix + "expires", 0);
@@ -46,9 +47,9 @@ final class CourseLiveCapabilities {
             else if (!reports.getBoolean(prefix + "rendered", false))
                 value.append("卡片已出现，原生模板尚未显示增强控件");
             else value.append(switch (reports.getString(prefix + "reason", "")) {
-                case "native_progress_and_action" -> "已显示进度条和免打扰按钮";
+                case "native_progress_and_action" -> "已显示进度条和免打扰状态或操作";
                 case "native_progress_only" -> "已显示进度条，免打扰按钮不可用";
-                case "native_action_only" -> "已显示免打扰按钮，进度条不可用";
+                case "native_action_only" -> "已显示免打扰状态或操作";
                 default -> "已显示增强卡片";
             });
         }
@@ -69,6 +70,10 @@ final class CourseLiveCapabilities {
             else if ("ended".equals(status)) value.append("当前没有活动课程卡片");
             else value.append("已开启，等待课程提醒卡片");
         }
+        value.append("\n息屏：");
+        if (CourseLiveSeedlingState.aodSubscribed(settings.identity)) value.append("系统息屏已订阅课程卡片");
+        else if (settings.astraEnabled) value.append("星河岛可显示课程名，需在星流「显示规则」中开启锁屏显示和息屏显示");
+        else value.append("当前未收到系统息屏订阅；已检查的三版日历模板未声明息屏入口");
         if (settings.keepDuringCourse) value.append("\n持续显示：已开启，按本课表的课前提醒时间至下课");
         return value.toString();
     }
@@ -76,9 +81,9 @@ final class CourseLiveCapabilities {
     static String summary(Context context) {
         SharedPreferences reports = reports(context);
         String nativeStatus = switch (reports.getString("nativeReason", "")) {
-            case "native_progress_and_action" -> "原生卡片已显示进度条及免打扰按钮";
+            case "native_progress_and_action" -> "原生卡片已显示进度条及免打扰状态或操作";
             case "native_progress_only" -> "原生卡片已显示进度条，本次未显示免打扰按钮";
-            case "native_action_only" -> "原生卡片已显示免打扰按钮，本次未显示进度条";
+            case "native_action_only" -> "原生卡片已显示免打扰状态或操作，本次未显示进度条";
             case "native_controls_disabled" -> "本次卡片未启用增强控件";
             default -> reports.contains("nativeRendered") ? "尚未确认当前原生模板支持增强控件"
                     : "尚未收到系统界面的实际渲染确认";

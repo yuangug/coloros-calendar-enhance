@@ -1,38 +1,29 @@
-# Course activity checks
+# 课程实时活动验证
 
-Run the pure occurrence timeline checks without Android or Gradle:
+以下命令从 **CourseAlarm 工程根目录**运行。若要验证拾光导入或课表读取，请改看[工具索引](../README.md)。
 
-```powershell
-python tools/run_live_checks.py --jdk ../toolchain/jdk21
-```
+## 不用手机：验证时间与课间
 
-They cover 45, 90 and 100 minute classes, continuous progress through breaks,
-cross-midnight and daylight-saving timestamps, start/end/retention boundaries,
-manual dismissal precedence, independent instance identities and invalid inputs.
-The opt-in reminder window is also checked at the configured lead time, after
-ten minutes of class, across breaks and adjacent lessons, and at dismissal and
-class end. Its dispatch gate covers a native reminder racing a scheduled retry.
-
-The stage tests cover unequal periods, real versus zero-length breaks, lookup against
-the actual event clock, and the SDK's 16-label limit. The standalone Android probe
-in `android/AstraStageProbe.java` also builds a real staged and ordinary Astra SDK card
-without posting a notification.
-
-Run DEX and signed template checks against the three locally supplied calendar APKs:
+在 PowerShell 中设置好指向 JDK 21 的 `JAVA_HOME` 后运行：
 
 ```powershell
-python tools/verify_live_apks.py --apk "<17.3.70.apk>" --apk "<17.6.20.apk>" --apk "<17.8.0.apk>" --aapt2 "<aapt2.exe>" --output "<report.json>"
+python tools/run_live_checks.py --jdk "$env:JAVA_HOME"
 ```
 
-The script checks host interfaces including the course sender, model conversion and restored Seedling identities, resolves the notification factory by its
-full signature, and records whether the unmodified signed Seedling templates
-contain progress nodes or a do-not-disturb binding. Provider `call` is inherited
-from Android and is explicitly reported as an external framework dependency.
+[时间用例](CourseOccurrenceCheck.java)覆盖 45／90／100 分钟课程、跨日、夏令时和手动关闭；另检查课前提醒窗口、课中重试，以及下课后保留到期。连堂课分段覆盖不等长节次、没有课间和超出星河岛 SDK 标签上限。对每段实际课间，分别断言休息开始、期间、下一节开始的进度都等于圆点位置，随后继续前进；不分段的总时长进度仍包含休息。
 
-These checks do not install packages, query real calendar data, or establish
-successful notification delivery, system-card rendering, DND behavior or UI
-compatibility. Those require the separate device checks.
+## 有日历 APK：检查接口与模板
 
-The isolated ART host probe also constructs a normal course reminder with each
-Calendar APK's own class loader and checks the occurrence ID, reminder/start/end
-times, time zone and course account. This does not publish a card on the phone.
+```powershell
+python tools/verify_live_apks.py --apk "<17.3.70.apk>" --apk "<17.6.20.apk>" --apk "<17.8.0.apk>" --aapt2 "<aapt2.exe>" --output "build/live-template-report.json"
+```
+
+这里的输入是**宿主日历 APK**。脚本检查课程通知入口、模型与卡片身份，读取原始签名模板是否包含进度节点或免打扰绑定。Provider 的 `call` 继承自 Android 框架，单独标记为外部依赖。版本覆盖见[宿主兼容记录](../../compatibility/README.md)。
+
+## 有设备：区分卡片构造和实际显示
+
+[CourseShadeLayoutProbe](../../app/src/deviceTest/java/com/lcodexs/coursealarm/CourseShadeLayoutProbe.java) 通过验证包的 `shadeLayout` 操作在日历进程检查左右布局及卸载还原。WakeUp 的 E16 凝光胶囊须在真实通知栏检查：课程提醒卡上的控件由当前卡片引擎的 LevelEView 绘制。离屏测试不验证材质或息屏显示。
+
+独立 ART 检查可用宿主自己的类加载器构造课程提醒，核对实例身份、提醒及起止时间、时区和课程账户。[AstraStageProbe](android/AstraStageProbe.java) 使用实际 SDK 构造分段卡和普通卡，但不发布通知。
+
+以上检查不读取用户课表，不能证明通知已送达。要确认通知栏里有进度条、流体云展开后显示课间，或免打扰在下课时解除，仍需在相应系统环境中用测试课程观察。

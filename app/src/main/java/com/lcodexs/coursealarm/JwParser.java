@@ -420,6 +420,8 @@ final class JwParser {
         int a0 = h.indexOf('第');
         int b0 = h.indexOf('节', a0 < 0 ? 0 : a0);
         String body = (a0 >= 0 && b0 > a0) ? h.substring(a0 + 1, b0) : h;
+        // XIT's evening row mixes numbering systems: 第九十11节 = 9, 10, 11.
+        if ("九十11".equals(body)) return new int[]{8,10};
         int[] cn = cnNumbers(body);
         if (cn == null || cn.length == 0) return null;
         int a = cn[0];

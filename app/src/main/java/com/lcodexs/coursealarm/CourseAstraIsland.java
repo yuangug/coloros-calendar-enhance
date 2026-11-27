@@ -20,7 +20,7 @@ final class CourseAstraIsland {
     private CourseAstraIsland() { }
 
     static String publish(Context app, CourseOccurrence item, CourseLiveSettings.State settings,
-                          PendingIntent open, PendingIntent dismiss, PendingIntent dnd, boolean dndActive) {
+                          PendingIntent open, PendingIntent dismiss, PendingIntent dnd, boolean dndActive, boolean reserved) {
         Bundle request = request(item.key);
         CourseLiveCoordinator.attachIslandDeadlines(request);
         request.putString("title", limit(item.title, 128));
@@ -34,8 +34,9 @@ final class CourseAstraIsland {
         request.putLong("expires", item.expiresAt(settings.retainMinutes));
         request.putParcelable("open", open);
         request.putParcelable("dismiss", dismiss);
-        if (settings.showDndButton && dnd != null) {
-            request.putParcelable("dnd", dnd);
+        if (settings.showDndButton) {
+            if (!dndActive && dnd != null) request.putParcelable("dnd", dnd);
+            request.putBoolean("reserved", reserved);
             request.putBoolean("dndActive", dndActive);
         }
         return call(app, PUBLISH, request);

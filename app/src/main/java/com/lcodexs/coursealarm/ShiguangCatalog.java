@@ -26,7 +26,14 @@ final class ShiguangCatalog {
 
     static final class Adapter {
         final String school, name, description, url, sha, id, initial;
+        final boolean localXit;
+        private Adapter() {
+            localXit = true; school = "厦门工学院"; id = "XIT"; initial = "X XM GXY XMGXY";
+            name = "厦门工学院教务系统"; description = "学期理论课表 · 教学周历与节次时间";
+            url = "https://xgjwxt.xit.edu.cn/jsxsd/"; sha = "";
+        }
         Adapter(JSONObject row) throws Exception {
+            localXit = false;
             school = row.getString("school"); name = row.getString("name"); id = row.getString("id");
             description = row.getString("description"); initial = row.getString("initial");
             url = row.getString("url"); sha = row.getString("sha");
@@ -49,6 +56,7 @@ final class ShiguangCatalog {
             result.add(adapter);
         }
         if (result.isEmpty()) throw new IOException("拾光适配索引为空");
+        result.add(new Adapter());
         return catalog = Collections.unmodifiableList(result);
     }
     static String script(Adapter a) throws Exception {
@@ -61,7 +69,10 @@ final class ShiguangCatalog {
         return utf8(bytes);
     }
     static String bridge() throws IOException {
-        try (ZipFile apk = openApk(); InputStream in = asset(apk, "assets/shiguang/bridge.js")) {
+        return bundledScript("bridge.js");
+    }
+    static String bundledScript(String name) throws IOException {
+        try (ZipFile apk = openApk(); InputStream in = asset(apk, "assets/shiguang/" + name)) {
             return utf8(read(in));
         }
     }

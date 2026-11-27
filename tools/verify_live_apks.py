@@ -71,6 +71,9 @@ def contracts():
         method(ROOT + "NotificationFluidSeedingHelper", "updateFluidCard", "(" + CARD + MODEL + "Ljava/lang/Boolean;)V", True),
         field(ROOT + "NotificationFluidSeedingHelper", "INSTANCE", "Lcom/android/calendar/seedling/notificationfluidcard/NotificationFluidSeedingHelper;", True),
         method(seedling, "build", "(Ljava/lang/String;)" + CARD, True),
+        field("com.oplus.pantanal.seedling.bean.SeedlingHostEnum", "AOD", "Lcom/oplus/pantanal/seedling/bean/SeedlingHostEnum;", True),
+        method("com.oplus.pantanal.seedling.update.SeedlingCardOptions", "getShowHostMap", "()Ljava/util/Map;"),
+        method("com.oplus.pantanal.seedling.update.SeedlingCardOptions", "setShowHostMap", "(Ljava/util/Map;)V"),
         method(seedling, "getWidgetCode", "()Ljava/lang/String;"),
         method(seedling, "getServiceInstanceId", "()Ljava/lang/String;"),
         method(seedling, "setServiceInstanceId", "(Ljava/lang/String;)V"),
@@ -109,6 +112,9 @@ def template_report(apk):
             payload = package.read("assets/upk/" + filename)
             with zipfile.ZipFile(io.BytesIO(payload)) as template:
                 page = json.loads(template.read("pages/index.json"))
+                config = json.loads(template.read("config.json"))
+                entries = sorted({entry for device in config["runtime"]["support-hardware"]["device"]
+                                  if device["type"] == "PHONE" for entry in device["entry"]})
                 types = set()
 
                 def visit(value):
@@ -126,7 +132,7 @@ def template_report(apk):
                     "asset": filename,
                     "sha256": hashlib.sha256(payload).hexdigest(),
                     "signed": any(name.startswith("META-INF/") and name.endswith(".RSA") for name in template.namelist()),
-                    "nodeTypes": sorted(types),
+                    "nodeTypes": sorted(types), "phoneEntries": entries, "declaresAod": "aod" in entries,
                     "progressNode": any("progress" in name.lower() for name in types),
                     "dndBinding": bool(re.search(r"\bdnd\b|doNotDisturb|免打扰", json.dumps(page, ensure_ascii=False), re.I)),
                     "scope": "Template structure only; arbitrary publisher metadata cannot establish rendered widget support.",

@@ -23,8 +23,21 @@ public final class CourseDndSessionsCheck {
         check(!manual.active(900), "Manual-only schedule is initially inactive");
         check(manual.nextBoundary(900) == 0, "No alarm for a disabled automatic schedule");
         manual = manual.toggle("a", 1000, 2000, 900);
-        check(manual.active(900), "Manual request starts immediately before the class");
-        check(manual.nextBoundary(900) == 2000, "Manual request expires at class end");
+        check(manual.get("a").reserved(900) && !manual.active(999), "Reservation never silences the phone before class");
+        check(manual.nextBoundary(900) == 1000 && manual.active(1000), "Reservation starts exactly at class start");
+        check(manual.nextBoundary(1000) == 2000, "Reserved class releases at class end");
+        CourseDndSessions restored = new CourseDndSessions(manual.all()).replace(List.of(session("a", 1000, 2000, false)), 950);
+        check(restored.get("a").reserved(950), "Same occurrence retains its reservation on reload");
+        check(!restored.revoke(950).replace(List.of(session("a", 1000, 2000, false)), 960).active(1000),
+                "Revoking and regranting permission cannot reactivate a booking");
+        CourseDndSessions cancelled = restored.toggle("a", 1000, 2000, 950);
+        check(!cancelled.active(1000) && cancelled.nextBoundary(950) == 0, "Cancelled booking has no start alarm");
+        check(!restored.replace(List.of(session("a", 1050, 2100, false)), 950).get("a").reserved(950),
+                "Rescheduling cannot carry the booking to a new interval");
+        CourseDndSessions overlapBookings = new CourseDndSessions(List.of(session("a", 1000, 1700, false),
+                session("b", 1500, 2500, false))).toggle("a", 1000, 1700, 950).toggle("b", 1500, 2500, 950);
+        check(overlapBookings.nextBoundary(1050) == 2500 && overlapBookings.active(1700),
+                "Overlapping manual bookings keep the rule until the last class ends");
         check(!manual.active(2000), "Class end is an exclusive bound");
         check(manual.prune(2000).all().isEmpty(), "Ended occurrence is pruned");
 

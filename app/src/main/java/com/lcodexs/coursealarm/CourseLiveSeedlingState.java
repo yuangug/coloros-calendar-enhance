@@ -31,7 +31,7 @@ final class CourseLiveSeedlingState {
         long event, calendar, start, end, alarm, expires;
         boolean force, independentIsland;
         volatile boolean closing;
-        volatile boolean notificationReady;
+        volatile boolean notificationReady, aodSubscribed;
         volatile boolean seenThisProcess;
         int subscribedBoot = -1;
         int closeAttempts;
@@ -197,6 +197,11 @@ final class CourseLiveSeedlingState {
             entry.cards.remove(widget);
             updateNotificationReady(entry);
             if (entry.cards.isEmpty()) {
+                // Leaving ambient display is a host transition, not a swipe to dismiss.
+                if (!alreadyClosed && !entry.closing && Ref.callName(card, "getHost") instanceof Enum<?> host
+                        && "AOD".equals(host.name())) {
+                    entry.last = ""; save(entry); CourseLiveCoordinator.requestTick(); return;
+                }
                 if (!alreadyClosed && !entry.closing && !isClosing(service) && !otherNotification(entry)
                         && !CourseLiveCoordinator.independentIsland(entry.key, entry.independentIsland))
                     CourseLiveCoordinator.dismiss(captured(entry));
@@ -281,13 +286,20 @@ final class CourseLiveSeedlingState {
     }
 
     private static void updateNotificationReady(Entry entry) {
-        boolean delivered = false;
+        boolean delivered = false, aod = false;
         if (entry.subscribedBoot == bootCount) for (Object card : entry.cards.values()) {
-            if (isNotificationHost(card)) {
-                delivered = true; break;
-            }
+            if (isNotificationHost(card)) delivered = true;
+            if (Ref.callName(card, "getHost") instanceof Enum<?> host && "AOD".equals(host.name())) aod = true;
         }
         entry.notificationReady = delivered;
+        entry.aodSubscribed = aod;
+    }
+
+    static boolean aodSubscribed(String identity) {
+        long now = System.currentTimeMillis();
+        for (Entry entry : entries.values())
+            if (entry.aodSubscribed && !entry.closing && entry.expires > now && identity.equals(entry.identity)) return true;
+        return false;
     }
 
     private static boolean isNotificationHost(Object card) {

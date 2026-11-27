@@ -35,8 +35,8 @@ public final class CourseDndValidationCheck {
         check(CourseDndValidation.nextBoundary(schedule, 3000) == 0, "Ended schedule has no timer");
 
         CourseDndSessions manual = new CourseDndSessions(List.of(session("manual", 1000, 2000, false, true)));
-        check(CourseDndValidation.activeLeaseEnd(manual, 900) == 2000, "Explicit early manual activation expires at the real end");
-        check(CourseDndValidation.nextBoundary(manual, 900) == 2000, "Manual activation does not invent an automatic start");
+        check(CourseDndValidation.activeLeaseEnd(manual, 900) == 0, "A reservation cannot hold a DND lease before class");
+        check(CourseDndValidation.nextBoundary(manual, 900) == 1000, "Manual reservation wakes and revalidates at actual start");
         check(CourseDndValidation.nextBoundary(new CourseDndSessions(List.of()), 900) == 0, "Empty schedule schedules no work");
         CourseDndSessions stopped = schedule.suppressActive(1600);
         check(CourseDndValidation.activeLeaseEnd(stopped, 1600) == 0, "Manual-off suppression never holds a lease");
